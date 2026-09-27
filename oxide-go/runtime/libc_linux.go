@@ -78,6 +78,9 @@ func LibcMkdir(c *Context, path uintptr, mode uint32) int32 {
 	return libc.Xmkdir(c.libc(), path, mode)
 }
 func LibcUnlink(c *Context, path uintptr) int32 { return libc.Xunlink(c.libc(), path) }
+func LibcUnlinkat(c *Context, fd int32, path uintptr, flags int32) int32 {
+	return libc.Xunlinkat(c.libc(), fd, path, flags)
+}
 func LibcRename(c *Context, old, new uintptr) int32 {
 	return libc.Xrename(c.libc(), old, new)
 }
@@ -114,11 +117,15 @@ func LibcGetenv(c *Context, name uintptr) uintptr { return libc.Xgetenv(c.libc()
 func LibcOpendir(c *Context, name uintptr) uintptr {
 	return libc.Xopendir(c.libc(), name)
 }
+func LibcFdopendir(c *Context, fd int32) uintptr  { return libc.Xfdopendir(c.libc(), fd) }
 func LibcClosedir(c *Context, dir uintptr) int32  { return libc.Xclosedir(c.libc(), dir) }
 func LibcDirfd(c *Context, dir uintptr) int32     { return libc.Xdirfd(c.libc(), dir) }
 func LibcReaddir(c *Context, dir uintptr) uintptr { return libc.Xreaddir(c.libc(), dir) }
 func LibcStat(c *Context, path, buf uintptr) int32 {
 	return libc.Xstat(c.libc(), path, buf)
+}
+func LibcLstat(c *Context, path, buf uintptr) int32 {
+	return libc.Xlstat(c.libc(), path, buf)
 }
 func LibcFstat(c *Context, fd int32, buf uintptr) int32 {
 	return libc.Xfstat(c.libc(), fd, buf)

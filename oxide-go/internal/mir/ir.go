@@ -11,17 +11,18 @@ import (
 )
 
 type Program struct {
-	Compiler      string                     `json:"compiler"`
-	PanicStrategy string                     `json:"panic_strategy"`
-	RuntimeChecks map[string]bool            `json:"runtime_checks"`
-	Target        string                     `json:"target"`
-	Roots         []Root                     `json:"roots"`
-	Types         []Type                     `json:"types"`
-	Functions     []Function                 `json:"functions"`
-	Allocations   []json.RawMessage          `json:"allocations"`
-	VTables       map[string]uint64          `json:"vtables"`
-	Upcasts       map[string]int64           `json:"upcasts"`
-	ThreadLocals  map[uint64]json.RawMessage `json:"thread_locals"`
+	Compiler        string                     `json:"compiler"`
+	PanicStrategy   string                     `json:"panic_strategy"`
+	RuntimeChecks   map[string]bool            `json:"runtime_checks"`
+	Target          string                     `json:"target"`
+	Roots           []Root                     `json:"roots"`
+	PublicDropTypes []PublicDropType           `json:"public_drop_types"`
+	Types           []Type                     `json:"types"`
+	Functions       []Function                 `json:"functions"`
+	Allocations     []json.RawMessage          `json:"allocations"`
+	VTables         map[string]uint64          `json:"vtables"`
+	Upcasts         map[string]int64           `json:"upcasts"`
+	ThreadLocals    map[uint64]json.RawMessage `json:"thread_locals"`
 }
 type Allocation struct {
 	ID    uint64
@@ -34,6 +35,18 @@ type Relocation struct {
 	Target uint64
 }
 type Root struct {
+	// Name is the public Rust path, including the crate. Re-export aliases may
+	// have distinct names that resolve to the same monomorphic Symbol.
+	Name   string `json:"name"`
+	Symbol string `json:"symbol"`
+	// Rust type identity must survive canonical Go ABI representations.
+	Params []int `json:"params"`
+	Return int   `json:"return"`
+}
+
+// PublicDropType names rustc's destructor for an owned public signature type.
+type PublicDropType struct {
+	Type   int    `json:"type"`
 	Name   string `json:"name"`
 	Symbol string `json:"symbol"`
 }
@@ -98,6 +111,7 @@ type Tag struct {
 	Untagged int    `json:"untagged"`
 }
 type Function struct {
+	RuntimeBoundary   string               `json:"runtime_boundary"`
 	Symbol            string               `json:"symbol"`
 	Name              string               `json:"name"`
 	Kind              string               `json:"kind"`

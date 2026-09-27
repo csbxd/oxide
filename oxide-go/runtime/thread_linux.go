@@ -113,6 +113,11 @@ func LibcCxaThreadAtExit(c *Context, destructor, value, dso uintptr, invoke Dest
 }
 
 func (c *Context) closeThreadDestructors() {
+	c.closeCxaDestructors()
+	c.closePthreadDestructors()
+}
+
+func (c *Context) closeCxaDestructors() {
 	// Match Linux libc: C++ TLS destructors precede pthread key destructors.
 	// A destructor can register another destructor, which must run next.
 	for len(c.cxaDestructors) != 0 {
@@ -122,6 +127,9 @@ func (c *Context) closeThreadDestructors() {
 		c.cxaDestructors = c.cxaDestructors[:i]
 		d.invoke(c, d.destructor, d.value)
 	}
+}
+
+func (c *Context) closePthreadDestructors() {
 	for range pthreadDestructorIterations {
 		// Snapshot the keys so callbacks that replace values or create keys
 		// cannot make one key run more than once in a destructor iteration.

@@ -74,6 +74,9 @@ func Generate(p *Program, packageName string) (out []byte, err error) {
 	for _, r := range p.Roots {
 		required[r.Symbol] = true
 	}
+	for _, d := range p.PublicDropTypes {
+		required[d.Symbol] = true
+	}
 	for _, f := range p.Functions {
 		for _, call := range f.AssertCalls {
 			required[call.Symbol] = true
@@ -166,54 +169,8 @@ func Generate(p *Program, packageName string) (out []byte, err error) {
 		}
 		g.function(&p.Functions[i])
 	}
-	used := map[string]bool{}
-	for _, r := range p.Roots {
-		f := g.functions[r.Symbol]
-		if f == nil {
-			g.fail("missing root %s", r.Symbol)
-		}
-		name := ExportName(r.Name)
-		if used[name] {
-			g.fail("duplicate exported root name %s", name)
-		}
-		used[name] = true
-		params, ret := g.signature(f)
-		args := []string{"ctx"}
-		declarations := []string{"ctx *oxide.Context"}
-		if g.indirectValue(ret) {
-			declarations = append(declarations, "result uintptr")
-			args = append(args, "result")
-		}
-		for i, t := range params {
-			n := fmt.Sprintf("a%d", i)
-			declarations = append(declarations, n+" "+g.argumentType(t))
-			args = append(args, n)
-		}
-		if f.TrackCaller {
-			declarations = append(declarations, "caller uintptr")
-			args = append(args, "caller")
-		}
-		g.line("// %s translates %s.", name, r.Name)
-		if g.indirectValue(ret) {
-			g.line("// result points to %d writable bytes with Rust alignment %d.", g.typ(ret).Size, g.typ(ret).Align)
-		}
-		for i, t := range params {
-			if g.indirectValue(t) {
-				g.line("// a%d points to %d readable bytes, copied into the callee's Rust frame.", i, g.typ(t).Size)
-			}
-		}
-		if f.TrackCaller {
-			g.line("// caller points to a Rust std::panic::Location with static lifetime.")
-		}
-		g.line("func %s(%s) %s {", name, strings.Join(declarations, ","), g.returnType(ret))
-		if g.indirectValue(ret) {
-			g.line("%s(%s)", g.names[r.Symbol], strings.Join(args, ","))
-			g.line("if ctx.Failed() { panic(ctx.TakePanic()) }; return }")
-		} else {
-			g.line("r := %s(%s)", g.names[r.Symbol], strings.Join(args, ","))
-			g.line("if ctx.Failed() { panic(ctx.TakePanic()) }; return r }")
-		}
-	}
+	g.emitRoots()
+	g.emitPublicDrops()
 	for _, t := range g.extraTypes {
 		g.typeDecl(t)
 	}
@@ -356,24 +313,6 @@ func (g *generator) arrayType(element int, length uint64) int {
 	return t.ID
 }
 
-func ExportName(name string) string {
-	parts := strings.Split(name, "::")
-	s := parts[len(parts)-1]
-	var b strings.Builder
-	upper := true
-	for _, r := range s {
-		if r == '_' {
-			upper = true
-			continue
-		}
-		if upper && r >= 'a' && r <= 'z' {
-			r -= 32
-		}
-		b.WriteRune(r)
-		upper = false
-	}
-	return b.String()
-}
 func (g *generator) line(f string, args ...any) { fmt.Fprintf(&g.b, f, args...); g.b.WriteByte('\n') }
 func (g *generator) fail(f string, args ...any) {
 	name := ""
@@ -497,6 +436,9 @@ func (g *generator) function(f *Function) {
 	if f.EmptyDrop {
 		g.line("return %s", g.zero(ret))
 		g.line("}")
+		return
+	}
+	if g.processStartupFunction(f, params, ret) {
 		return
 	}
 	if f.Body == nil {

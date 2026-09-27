@@ -8,9 +8,10 @@ use rustc_public::mir::{
     Body, CastKind, PointerCoercion, Rvalue, StatementKind, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{Allocation, ClosureKind, ConstantKind, MirConst, RigidTy, Ty, TyKind};
-use rustc_public::{CrateDef, CrateDefType, ItemKind, all_local_items, rustc_internal};
+use rustc_public::{CrateDef, CrateDefType, rustc_internal};
 use serde_json::{Value, json};
 use std::collections::{HashSet, VecDeque};
+use std::io::Write;
 use std::path::Path;
 
 type Result<T> = std::result::Result<T, String>;
@@ -18,29 +19,27 @@ type Result<T> = std::result::Result<T, String>;
 pub fn program(tcx: TyCtxt<'_>, output: &Path) -> Result<()> {
     let mut export = Exporter::new(tcx);
     let filter = std::env::var("OXIDE_ROOTS").unwrap_or_default();
-    let mut items = all_local_items();
-    items.sort_by_key(|i| i.name());
+    let discovered = crate::roots::discover(tcx, &filter)?;
     let mut roots = Vec::new();
-    for item in items {
-        if item.kind() != ItemKind::Fn || item.requires_monomorphization() {
-            continue;
-        }
-        let def = rustc_internal::internal(tcx, item.def_id());
-        if filter.is_empty() {
-            if !tcx.visibility(def).is_public() && Some(item) != rustc_public::entry_fn() {
-                continue;
-            }
-        } else if !filter.split(',').any(|s| s == item.name()) {
-            continue;
-        }
-        let instance = Instance::try_from(item).map_err(|e| e.to_string())?;
-        roots.push(json!({"name": item.name(), "symbol": export.enqueue(instance)}));
+    for (name, instance) in discovered.selected {
+        let symbol = export.enqueue(instance);
+        export.root_symbols.insert(symbol.clone());
+        roots.push(json!({"name": name, "symbol": symbol}));
     }
     if roots.is_empty() {
         return Err(format!("no monomorphic export roots (filter {filter:?})"));
     }
     while let Some(instance) = export.pending.pop_front() {
         export.function(instance)?;
+    }
+    for root in &mut roots {
+        let symbol = root["symbol"].as_str().unwrap();
+        let (params, result) = export
+            .root_signatures
+            .get(symbol)
+            .ok_or_else(|| format!("missing public signature for {symbol}"))?;
+        root["params"] = json!(params);
+        root["return"] = json!(result);
     }
     for ty in &mut export.types {
         if let Some(symbol) = export.reified_functions.get(&ty["id"].as_u64().unwrap()) {
@@ -62,6 +61,11 @@ pub fn program(tcx: TyCtxt<'_>, output: &Path) -> Result<()> {
     // json!(values) serializes a borrowed Value tree into a second owned tree.
     // Move the existing graph so writing it does not double its live storage.
     data["roots"] = Value::Array(roots);
+    data["public_api"] = Value::Array(discovered.public_api);
+    export
+        .public_drop_types
+        .sort_by_key(|entry| entry["type"].as_u64());
+    data["public_drop_types"] = Value::Array(export.public_drop_types);
     data["functions"] = Value::Array(export.functions);
     data["types"] = Value::Array(export.types);
     data["allocations"] = Value::Array(export.allocations);
@@ -73,7 +77,19 @@ pub fn program(tcx: TyCtxt<'_>, output: &Path) -> Result<()> {
             .collect(),
     );
     let file = std::fs::File::create(output).map_err(|e| e.to_string())?;
-    serde_json::to_writer(std::io::BufWriter::new(file), &data).map_err(|e| e.to_string())
+    let mut writer = std::io::BufWriter::new(file);
+    serde_json::to_writer(&mut writer, &data).map_err(|e| e.to_string())?;
+    writer.flush().map_err(|e| e.to_string())?;
+    // Keep the public API audit inexpensive even for a multi-gigabyte MIR graph.
+    // These values come from the same completed export, not a second discovery pass.
+    let api = json!({"compiler": data["compiler"], "target": data["target"],
+        "roots": data["roots"], "public_api": data["public_api"],
+        "public_drop_types": data["public_drop_types"]});
+    let file =
+        std::fs::File::create(output.with_extension("api.json")).map_err(|e| e.to_string())?;
+    let mut writer = std::io::BufWriter::new(file);
+    serde_json::to_writer(&mut writer, &api).map_err(|e| e.to_string())?;
+    writer.flush().map_err(|e| e.to_string())
 }
 
 struct Exporter<'tcx> {
@@ -81,6 +97,10 @@ struct Exporter<'tcx> {
     pending: VecDeque<Instance>,
     seen_functions: HashSet<Instance>,
     function_names: std::collections::HashMap<Instance, String>,
+    root_symbols: HashSet<String>,
+    root_signatures: std::collections::HashMap<String, (Vec<Ty>, Ty)>,
+    public_drop_types: Vec<Value>,
+    seen_public_drop_types: HashSet<Ty>,
     reified_functions: std::collections::HashMap<u64, String>,
     linked_functions: Option<std::collections::HashMap<String, Instance>>,
     seen_types: HashSet<Ty>,
@@ -102,6 +122,10 @@ impl<'tcx> Exporter<'tcx> {
             pending: VecDeque::new(),
             seen_functions: HashSet::new(),
             function_names: std::collections::HashMap::new(),
+            root_symbols: HashSet::new(),
+            root_signatures: std::collections::HashMap::new(),
+            public_drop_types: vec![],
+            seen_public_drop_types: HashSet::new(),
             reified_functions: std::collections::HashMap::new(),
             linked_functions: None,
             seen_types: HashSet::new(),
@@ -129,6 +153,26 @@ impl<'tcx> Exporter<'tcx> {
         symbol
     }
 
+    fn public_drop_type(&mut self, ty: Ty) -> Result<()> {
+        let internal = rustc_internal::internal(self.tcx, ty);
+        if !internal.needs_drop(self.tcx, rustc_middle::ty::TypingEnv::fully_monomorphized())
+            || !self.seen_public_drop_types.insert(ty)
+        {
+            return Ok(());
+        }
+        if !ty.layout().map_err(|e| e.to_string())?.shape().is_sized() {
+            return Err(format!("unsized public owned value: {internal}"));
+        }
+        self.ty(ty)?;
+        let symbol = self.enqueue(Instance::resolve_drop_in_place(ty));
+        let name = rustc_middle::ty::print::with_no_visible_paths!(
+            rustc_middle::ty::print::with_no_trimmed_paths!(internal.to_string())
+        );
+        self.public_drop_types
+            .push(json!({"type": ty, "name": name, "symbol": symbol}));
+        Ok(())
+    }
+
     fn function(&mut self, instance: Instance) -> Result<()> {
         let symbol = self.function_names[&instance].clone();
         self.link_function(instance, &symbol)?;
@@ -136,6 +180,24 @@ impl<'tcx> Exporter<'tcx> {
             "kind": format!("{:?}", instance.kind), "empty_drop": instance.is_empty_shim(),
             "track_caller": instance.requires_caller_location()});
         let def = rustc_internal::internal(self.tcx, instance.def.def_id());
+        if !def.is_local()
+            && self.tcx.def_path_str(def) == "std::sys::args::unix::imp::argc_argv"
+            && self
+                .tcx
+                .diagnostic_items(def.krate)
+                .name_to_id
+                .iter()
+                .any(|(name, item)| {
+                    name.as_str() == "process_exit"
+                        && item.krate == def.krate
+                        && self.tcx.def_path_str(*item) == "std::process::exit"
+                })
+        {
+            // Rust's ELF init-array hook initializes this process-global state.
+            // Go owns executable startup; retain all surrounding Rust args MIR
+            // and identify only the OS getter by its compiler-known std crate.
+            entry["runtime_boundary"] = json!("std_args");
+        }
         if self.tcx.is_constructor(def) {
             if let Ok(abi) = instance.fn_abi() {
                 if let TyKind::RigidTy(RigidTy::Adt(adt, _)) = abi.ret.ty.kind() {
@@ -148,6 +210,27 @@ impl<'tcx> Exporter<'tcx> {
         // Compiler intrinsics are an explicit backend boundary. Their fallback
         // MIR (when available) is kept; it is never replaced by a guessed body.
         if let Some(body) = instance.body() {
+            if self.root_symbols.contains(&symbol) {
+                // Use the same visible MIR signature as the Go entry point. A
+                // reference/raw pointer does not transfer ownership of its pointee.
+                let mut params = Vec::new();
+                for (index, local) in body.arg_locals().iter().enumerate() {
+                    if body.spread_arg() == Some(index + 1) {
+                        let TyKind::RigidTy(RigidTy::Tuple(fields)) = local.ty.kind() else {
+                            return Err(format!("non-tuple public spread argument in {symbol}"));
+                        };
+                        params.extend(fields);
+                    } else {
+                        params.push(local.ty);
+                    }
+                }
+                let result = body.ret_local().ty;
+                for &ty in params.iter().chain(std::iter::once(&result)) {
+                    self.public_drop_type(ty)?;
+                }
+                self.root_signatures
+                    .insert(symbol.clone(), (params, result));
+            }
             self.collect_metadata(&body)?;
             let mut found = Collect::default();
             found.visit_body(&body);
@@ -286,6 +369,16 @@ impl<'tcx> Exporter<'tcx> {
                 // but callers and definitions in this IR use MIR parameters.
                 let count = abi.args.len() - usize::from(instance.requires_caller_location());
                 let args = &abi.args[..count];
+                if self.root_symbols.contains(&symbol) {
+                    self.public_drop_type(abi.ret.ty)?;
+                    for arg in args {
+                        self.public_drop_type(arg.ty)?;
+                    }
+                    self.root_signatures.insert(
+                        symbol.clone(),
+                        (args.iter().map(|arg| arg.ty).collect(), abi.ret.ty),
+                    );
+                }
                 self.ty(abi.ret.ty)?;
                 for a in args {
                     self.ty(a.ty)?;

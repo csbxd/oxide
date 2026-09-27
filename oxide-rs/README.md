@@ -16,8 +16,46 @@ Run the frontend regression checks after building:
 ```sh
 sh oxide/oxide-rs/build.sh
 python3 oxide/oxide-rs/tests/check.py
+python3 oxide/oxide-rs/tests/check_roots.py
 python3 oxide/oxide-rs/tests/check_panic.py
 ```
+
+Default roots follow rustc's public module namespace, including dependency
+reexports, renamed aliases, public inherent methods and tuple constructors.
+Private modules do not become public merely because their functions use `pub`.
+Roots retain their callable Rust path; aliases may share one MIR instance.
+Explicit and derived trait implementations on public ADTs also contribute
+monomorphic roots, named with Rust UFCS, such as
+`<facade::Point as core::clone::Clone>::clone`. Rust resolves default methods
+and checks their predicates before they become roots. Destructors are compiler
+managed and remain reachable through real drop glue, not callable roots.
+
+`public_api` records each discovered function path, definition, kind, selection
+and status. Each successful export also writes an adjacent `.api.json` file
+containing the compiler, target, roots and inventory from the same export, so
+coverage tools need not load the full MIR graph.
+Each root also records its original Rust `params` and `return` type IDs;
+compiler `spread_arg` tuples follow the same expansion as the generated entry
+point. These IDs preserve ownership distinctions even when multiple Rust types
+share one Go ABI representation.
+
+`public_drop_types` records the sized, owned types in those signatures for which
+rustc reports `needs_drop`, together with their real `drop_in_place` instance.
+The exporter enqueues that glue and writes the same list in the API sidecar.
+Borrowed references and raw pointers do not export their pointee's destructor.
+Go callers consume owned results using the generated `DropT<ID>` helpers;
+closing a runtime context does not implicitly drop ordinary Rust heap values.
+Generic type/const parameters require concrete Rust instantiations;
+an unbounded set of blanket-trait implementations is not enumerated. The finite
+trait inventory covers explicit/derived implementations in a public type's
+defining crate and the facade crate. Generic methods on concrete type aliases
+that still need impl-argument inference are reported as requiring
+monomorphization. Recursive module reexports are recorded at the cycle instead
+of inventing infinitely many alias paths. `OXIDE_ROOTS` selects exact paths
+(commas inside UFCS type arguments are preserved), and rejects unknown or
+non-instantiable selections. It can also explicitly select a private local
+function for a compiler probe. The multi-crate checks verify these boundaries
+and compile an independent downstream Rust consumer of the exported paths.
 
 The checks export the same fixture for Linux arm64 and amd64. They verify
 higher-ranked function pointer signatures, `dyn Write` arguments, closure
@@ -67,3 +105,7 @@ exported symbol table, and `panic_impl` through the actual language item.
 This preserves Rust panic hooks, payload boxing, and cleanup as ordinary MIR.
 The panic regression check rebuilds std and its panic runtime, then verifies
 both Linux targets. See [UNWIND.md](UNWIND.md) for the runtime boundary.
+`runtime_boundary: "std_args"` identifies the pinned Unix std argument getter
+whose ELF initialization is supplied by the Go executable. Its body is retained;
+the tag requires the actual std crate's compiler diagnostic item, not a matching
+user-defined module or function name.

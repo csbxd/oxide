@@ -9,6 +9,7 @@ extern crate rustc_public;
 extern crate serde_json;
 
 mod export;
+mod roots;
 
 use std::env;
 use std::path::PathBuf;

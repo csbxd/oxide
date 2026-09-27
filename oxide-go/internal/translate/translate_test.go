@@ -41,7 +41,7 @@ func TestMIRDriver(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(result.Files) != 2 {
+		if len(result.Files) != 3 {
 			t.Fatalf("output files: %v", result.Files)
 		}
 		data, err := os.ReadFile(filepath.Join(cfg.Output, "oxide_gen_00000.go"))
@@ -55,6 +55,14 @@ func TestMIRDriver(t *testing.T) {
 		if !strings.Contains(string(data), "func "+want+"(") {
 			t.Fatalf("stale export for roots %q", roots)
 		}
+		api, err := os.ReadFile(filepath.Join(cfg.Output, "oxide.mir.api.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest struct{ Roots []mir.Root }
+		if err := json.Unmarshal(api, &manifest); err != nil || len(manifest.Roots) != 1 || !strings.EqualFold(strings.TrimPrefix(manifest.Roots[0].Name, "fixture::"), want) {
+			t.Fatalf("stale public API manifest for %q: %s, %v", roots, api, err)
+		}
 	}
 	cfg.OverflowChecks = false
 	if _, err := Run(cfg); err != nil {
@@ -65,6 +73,10 @@ func TestMIRDriver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	beforeAPI, err := os.ReadFile(filepath.Join(cfg.Output, "oxide.mir.api.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("OXIDE_DRIVER_BAD_MIR", "1")
 	if _, err := Run(cfg); err == nil {
 		t.Fatal("expected invalid MIR target to fail")
@@ -72,6 +84,10 @@ func TestMIRDriver(t *testing.T) {
 	after, err := os.ReadFile(filepath.Join(cfg.Output, "oxide.mir.json"))
 	if err != nil || string(before) != string(after) {
 		t.Fatalf("failed export changed published MIR: %v", err)
+	}
+	afterAPI, err := os.ReadFile(filepath.Join(cfg.Output, "oxide.mir.api.json"))
+	if err != nil || string(beforeAPI) != string(afterAPI) {
+		t.Fatalf("failed export changed published public API manifest: %v", err)
 	}
 	entries, err := os.ReadDir(cfg.Output)
 	if err != nil {
@@ -147,7 +163,15 @@ func TestDriverHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(strings.TrimPrefix(last, "--oxide-export="), data, 0o644); err != nil {
+	output := strings.TrimPrefix(last, "--oxide-export=")
+	if err := os.WriteFile(output, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	api, err := json.Marshal(map[string]any{"compiler": p.Compiler, "target": p.Target, "roots": p.Roots})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(strings.TrimSuffix(output, ".json")+".api.json", api, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	os.Exit(0)

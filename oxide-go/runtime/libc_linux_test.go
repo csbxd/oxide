@@ -22,6 +22,103 @@ func libcString(c *Context, s string) uintptr {
 }
 func libcErrno(c *Context) int32 { return *(*int32)(unsafe.Pointer(LibcErrnoLocation(c))) }
 
+func TestLibcFDDirectoryOwnership(t *testing.T) {
+	// libc's environment lives for the process. Its TLS call-stack slots live
+	// until Close, including extra nested slots first used by a valid fdopendir.
+	warm := libc.NewTLS()
+	warm.Close()
+	baseline := libc.MemStat()
+	c := NewContext()
+	defer c.Close()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "entry"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if p := LibcFdopendir(c, -1); p != 0 || libcErrno(c) != int32(syscall.EBADF) {
+		t.Fatalf("fdopendir invalid descriptor: %#x, errno %d", p, libcErrno(c))
+	}
+	fd := LibcOpen(c, libcString(c, dir), syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_CLOEXEC, 0)
+	if fd < 0 {
+		t.Fatalf("open directory: errno %d", libcErrno(c))
+	}
+	p := LibcFdopendir(c, fd)
+	if p == 0 {
+		LibcClose(c, fd)
+		t.Fatalf("fdopendir: errno %d", libcErrno(c))
+	}
+	defer func() {
+		if p != 0 {
+			LibcClosedir(c, p)
+		}
+	}()
+	if got := LibcDirfd(c, p); got != fd {
+		t.Fatalf("directory descriptor %d, want %d", got, fd)
+	}
+	found := false
+	for entry := LibcReaddir(c, p); entry != 0; entry = LibcReaddir(c, p) {
+		name := entry + 19
+		found = found || string(unsafe.Slice((*byte)(unsafe.Pointer(name)), LibcStrlen(c, name))) == "entry"
+	}
+	if !found {
+		t.Fatal("fdopendir directory missed the file")
+	}
+	status := LibcClosedir(c, p)
+	p = 0
+	if status != 0 || LibcFcntl(c, fd, syscall.F_GETFD, 0) != -1 || libcErrno(c) != int32(syscall.EBADF) {
+		t.Fatal("closedir did not consume its descriptor")
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := libc.MemStat(); got != baseline {
+		t.Fatalf("directory storage retained: %+v -> %+v", baseline, got)
+	}
+}
+
+func TestLibcRelativeRemovalAndSymlinks(t *testing.T) {
+	c := NewContext()
+	defer c.Close()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "target"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "empty"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fd := LibcOpen(c, libcString(c, dir), syscall.O_RDONLY|syscall.O_DIRECTORY, 0)
+	if fd < 0 {
+		t.Fatalf("directory open: errno %d", libcErrno(c))
+	}
+	defer LibcClose(c, fd)
+	stat := c.Alloc(unsafe.Sizeof(libc.Tstat{}), 8)
+	link := libcString(c, filepath.Join(dir, "link"))
+	if LibcLstat(c, link, stat) != 0 || (*libc.Tstat)(unsafe.Pointer(stat)).Fst_mode&syscall.S_IFMT != syscall.S_IFLNK {
+		t.Fatal("lstat followed or lost the symlink")
+	}
+	if LibcStat(c, link, stat) != 0 || (*libc.Tstat)(unsafe.Pointer(stat)).Fst_mode&syscall.S_IFMT != syscall.S_IFREG {
+		t.Fatal("stat did not follow the symlink")
+	}
+	if LibcUnlinkat(c, fd, libcString(c, "link"), 0) != 0 {
+		t.Fatalf("unlinkat symlink: errno %d", libcErrno(c))
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "target")); err != nil || string(data) != "data" {
+		t.Fatal("unlinkat removed the symlink target", err)
+	}
+	empty := libcString(c, "empty")
+	if LibcUnlinkat(c, fd, empty, 0) != -1 || libcErrno(c) != int32(syscall.EISDIR) {
+		t.Fatal("unlinkat without AT_REMOVEDIR accepted a directory")
+	}
+	if LibcUnlinkat(c, fd, empty, 0x200) != 0 {
+		t.Fatalf("unlinkat AT_REMOVEDIR: errno %d", libcErrno(c))
+	}
+	if LibcUnlinkat(c, fd, empty, 0x200) != -1 || libcErrno(c) != int32(syscall.ENOENT) {
+		t.Fatal("unlinkat did not remove the directory")
+	}
+}
+
 func TestLibcFileAndDirectory(t *testing.T) {
 	c := NewContext()
 	defer c.Close()

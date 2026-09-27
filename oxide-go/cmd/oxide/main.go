@@ -47,7 +47,11 @@ func emitCommand(args []string) {
 				err = mir.WriteAllocations(p, filepath.Join(*out, "oxide_alloc.bin"))
 			}
 			if err == nil {
-				_, err = mir.WriteGoFiles(*out, src)
+				var files []string
+				files, err = mir.WriteGoFiles(*out, src)
+				if err == nil {
+					err = mir.RemoveStaleGoFiles(*out, files)
+				}
 			}
 		}
 	}
@@ -64,7 +68,7 @@ func translateCommand(args []string) {
 	fs.StringVar(&cfg.Package, "package", "", "Cargo package (required for a workspace with multiple packages)")
 	fs.StringVar(&cfg.Output, "out", "", "output directory")
 	fs.StringVar(&cfg.Frontend, "frontend", "", "oxide-rs rustc_public frontend")
-	fs.StringVar(&cfg.Roots, "roots", "", "comma-separated Rust export roots; empty means public local functions")
+	fs.StringVar(&cfg.Roots, "roots", "", "comma-separated Rust API paths; empty exports public functions, re-exports and monomorphic methods")
 	fs.StringVar(&cfg.Target, "target", "", "target triple alias: linux/amd64 or linux/arm64")
 	fs.BoolVar(&cfg.OverflowChecks, "overflow-checks", true, "preserve Rust checked integer arithmetic")
 	fs.Parse(args)

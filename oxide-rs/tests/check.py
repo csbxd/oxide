@@ -30,7 +30,8 @@ for target in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"):
         assert program["target"] == target
         assert program["panic_strategy"] == "Unwind"
         assert program["runtime_checks"] == {"UbChecks": True, "ContractChecks": False, "OverflowChecks": True}
-        assert len(program["roots"]) == 17, program["roots"]
+        assert len(program["roots"]) == 16, program["roots"]
+        assert any(api["name"] == "layout::Value::value" and api["status"] == "requires_trait_resolution" for api in program["public_api"])
         assert all("layout_error" not in value for value in types.values())
         assert all(value["kind"] != "unsupported" for value in types.values())
         for value in types.values():

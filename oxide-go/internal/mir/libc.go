@@ -33,15 +33,18 @@ var cFunctions = map[string]cFunction{
 	"ftruncate64":      {"LibcFtruncate", "int32 int64", "int32"},
 	"mkdir":            {"LibcMkdir", "uintptr uint32", "int32"},
 	"unlink":           {"LibcUnlink", "uintptr", "int32"},
+	"unlinkat":         {"LibcUnlinkat", "int32 uintptr int32", "int32"},
 	"rename":           {"LibcRename", "uintptr uintptr", "int32"},
 	"readlink":         {"LibcReadlink", "uintptr uintptr uintptr", "int64"},
 	"realpath":         {"LibcRealpath", "uintptr uintptr", "uintptr"},
 	"getcwd":           {"LibcGetcwd", "uintptr uintptr", "uintptr"},
 	"getenv":           {"LibcGetenv", "uintptr", "uintptr"},
 	"opendir":          {"LibcOpendir", "uintptr", "uintptr"},
+	"fdopendir":        {"LibcFdopendir", "int32", "uintptr"},
 	"closedir":         {"LibcClosedir", "uintptr", "int32"},
 	"dirfd":            {"LibcDirfd", "uintptr", "int32"},
 	"stat64":           {"LibcStat", "uintptr uintptr", "int32"},
+	"lstat64":          {"LibcLstat", "uintptr uintptr", "int32"},
 	"fstat64":          {"LibcFstat", "int32 uintptr", "int32"},
 	"fstatat64":        {"LibcFstatat", "int32 uintptr uintptr int32", "int32"},
 	"readdir64":        {"LibcReaddir", "uintptr", "uintptr"},
@@ -65,6 +68,7 @@ var cFunctions = map[string]cFunction{
 	"memcmp":           {"LibcMemcmp", "uintptr uintptr uintptr", "int32"},
 	"__xpg_strerror_r": {"LibcStrerrorR", "int32 uintptr uintptr", "int32"},
 	"pause":            {"LibcPause", "", "int32"},
+	"exit":             {"LibcExit", "int32", ""},
 }
 
 func supportedExternal(e *External) bool {

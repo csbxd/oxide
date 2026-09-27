@@ -49,4 +49,9 @@ for target in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"):
     assert result["size"] == 4 and result["discriminants"] == [str(i) for i in range(10)]
     assert any("take_box" in name and "PanicPayload" in name for name in functions)
     assert any(f.get("assert_calls") for f in functions.values()), "missing checked arithmetic panic entry"
+    boundaries = [f for f in functions.values() if f.get("runtime_boundary")]
+    assert len(boundaries) == 1, boundaries
+    args = boundaries[0]
+    assert args["name"] == "std::sys::args::unix::imp::argc_argv" and args["runtime_boundary"] == "std_args"
+    assert args.get("body"), "startup boundary must retain the original Rust MIR"
     print(f"{target}: linked panic handler/runtime, catch callbacks, owned Exception layout passed")

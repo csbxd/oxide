@@ -11,3 +11,7 @@ pub fn catch_payload(value: u64) -> u64 {
 pub fn catch_overflow(value: u64) -> bool {
     std::panic::catch_unwind(|| value + 1).is_err()
 }
+
+pub fn argument_count() -> usize {
+    std::env::args_os().count()
+}

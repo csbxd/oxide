@@ -98,6 +98,9 @@ func runMIR(cfg Config) (*Result, error) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("Rust MIR build failed: %w\n%s", err, out)
 	}
+	if _, err := os.Stat(filepath.Join(stage, "oxide.mir.api.json")); err != nil {
+		return nil, fmt.Errorf("Rust public API manifest: %w", err)
+	}
 	program, err := mir.Load(exportPath)
 	if err != nil {
 		return nil, err
@@ -115,7 +118,7 @@ func runMIR(cfg Config) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	files := []string{"oxide.mir.json"}
+	files := []string{"oxide.mir.json", "oxide.mir.api.json"}
 	if len(program.Allocations) > 0 {
 		files = append(files, "oxide_alloc.bin")
 	}
