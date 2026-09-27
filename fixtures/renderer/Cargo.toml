@@ -1,0 +1,26 @@
+[package]
+name = "oxide_renderer_fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+mermaid-rs-renderer = { path = "../../../mermaid-rs-renderer" }
+
+[lib]
+path = "lib.rs"
+
+[[bin]]
+name = "oxide-renderer-native"
+path = "native.rs"
+
+[[bin]]
+name = "oxide-renderer-bench"
+path = "bench.rs"
+
+[[bin]]
+name = "oxide-renderer-leak-native"
+path = "leak_native.rs"
+
+[profile.dev]
+debug = "line-tables-only"

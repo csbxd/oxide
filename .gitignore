@@ -1,0 +1,12 @@
+# Build outputs and caches.
+/.cache/
+/bin/
+**/target/
+*.test
+*.pprof
+
+# Local experiments and editor/Python state.
+/.tmp-*/
+.idea/
+__pycache__/
+*.py[cod]

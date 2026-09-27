@@ -1,0 +1,15 @@
+[package]
+name = "oxide_libc_fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+libc = "=0.2.189"
+
+[lib]
+path = "lib.rs"
+
+[[bin]]
+name = "oxide-libc-native"
+path = "native.rs"

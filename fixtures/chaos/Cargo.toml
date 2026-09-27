@@ -1,0 +1,12 @@
+[package]
+name = "oxide_chaos_fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[[bin]]
+name = "oxide-chaos-native"
+path = "native.rs"

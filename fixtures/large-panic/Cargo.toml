@@ -1,0 +1,12 @@
+[package]
+name = "oxide_large_panic_fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[[bin]]
+name = "oxide-large-panic-native"
+path = "native.rs"
