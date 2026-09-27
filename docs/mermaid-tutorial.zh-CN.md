@@ -56,16 +56,20 @@ cc --version
 
 ## 2. 理解要翻译的 Rust 入口
 
-本例直接使用仓库提供的 [Cargo.toml](../fixtures/renderer/Cargo.toml) 和 [lib.rs](../fixtures/renderer/lib.rs)，无需修改上游渲染器。该 Cargo 包名为 `oxide_renderer_fixture`，依赖 `mermaid-rs-renderer`，保留默认 features。
+本例直接使用仓库提供的 [Cargo.toml](../fixtures/renderer/Cargo.toml) 和 [lib.rs](../fixtures/renderer/lib.rs)，无需修改上游渲染器。该 Cargo 包名为 `oxide_renderer_fixture`，重导出渲染器的完整公开库接口，保留默认 features，并启用 `scene`。
 
-包装层提供两个入口：
+这个入门示例选择 `fixture` 模块内的两个缓冲区接口：
 
 | Rust 函数 | 生成的 Go 入口 | 用途 |
 | --- | --- | --- |
-| `oxide_renderer_fixture::render_svg` | `RenderSvg` | 接收输入地址和长度，将 SVG 写入调用者提供的缓冲区，返回完整 SVG 长度 |
-| `oxide_renderer_fixture::write_png` | `WritePng` | 接收输入和路径的地址、长度，通过原始渲染器写 PNG 文件 |
+| `oxide_renderer_fixture::fixture::render_svg` | `Fixture_RenderSvg` | 接收输入地址和长度，将 SVG 写入调用者提供的缓冲区，返回完整 SVG 长度 |
+| `oxide_renderer_fixture::fixture::write_png` | `Fixture_WritePng` | 接收输入和路径的地址、长度，通过原始渲染器写 PNG 文件 |
 
-这些入口采用“地址 + 长度”的接口，方便 Go 分配存储并传参。渲染器内部仍使用原本的 Rust `String`、集合和依赖库；Oxide 会沿入口的调用图一起翻译。指定 `-roots` 可以明确导出哪些本地 Rust 函数。
+这些入口采用“地址 + 长度”的接口，方便 Go 分配存储并传参。渲染器内部仍使用原本的 Rust `String`、集合和依赖库；Oxide 会沿入口的调用图一起翻译。
+
+不指定 `-roots` 时，导出整个公开命名空间，包括重导出别名、方法、可单态化的 trait 方法和构造函数；泛型方法在 Rust 调用点提供具体类型后实例化。完整范围见 [API 清单](../fixtures/renderer/api-inventory.md)。Go 名称保留模块和类型边界，例如 `Theme_Modern`、`Config_LoadConfig`。上游原始 `render_svg` 导出为 `RenderSvg`，其参数仍是 Rust 布局对象；它与本例的字节缓冲区接口不同。
+
+直接取得拥有 Rust 堆内存的返回值时，使用生成的 `DropT<类型ID>` 清理。`oxide.mir.api.json` 中根的 `return` 和 `params` 记录原始 Rust 类型 ID，`public_drop_types` 列出对应的编译器析构代码；不同 Rust 类型可能共用一种 Go 表示，不能仅凭 Go 类型外形选择 Drop。Drop 会消费该值，之后不能再使用或再次释放其任何位拷贝；按值传给 Rust 函数的拥有参数也已转移所有权。大值遵循生成注释中的结果槽地址、大小及对齐约定。下面两个缓冲区入口会在 Rust 内部清理返回对象，Go 只接收字节。
 
 ## 3. 翻译成 Go 包
 
@@ -82,7 +86,7 @@ CARGO_TARGET_DIR="$OXIDE_DEMO/cargo-target" \
   -manifest "$OXIDE_ROOT/fixtures/renderer/Cargo.toml" \
   -package oxide_renderer_fixture \
   -target "linux/$OXIDE_ARCH" \
-  -roots oxide_renderer_fixture::render_svg,oxide_renderer_fixture::write_png \
+  -roots oxide_renderer_fixture::fixture::render_svg,oxide_renderer_fixture::fixture::write_png \
   -out "$OXIDE_DEMO/renderer"
 ```
 
@@ -91,6 +95,7 @@ CARGO_TARGET_DIR="$OXIDE_DEMO/cargo-target" \
 ```text
 renderer/
 ├── oxide.mir.json       # Rust 前端导出的 MIR，可用于重新生成 Go
+├── oxide.mir.api.json   # 公开路径、导出选择和泛型边界清单
 ├── oxide_gen_00000.go   # Go 源码，按编号拆成多个文件
 ├── oxide_gen_00001.go
 ├── ...
@@ -99,7 +104,7 @@ renderer/
 
 此命令生成的 Go 包名是 `oxide_renderer_fixture`，不会自动创建 `go.mod` 或可执行程序。保留全部生成的 `.go` 文件和 `oxide_alloc.bin`，下一步创建调用程序。
 
-两个子命令的 `-package` 含义不同：`translate -package` 选择 **Cargo 包**；`emit -package` 指定 **生成的 Go 包名**。`-roots` 使用完整 Rust 名称，逗号后不要加空格。默认保留整数溢出检查；`-overflow-checks=false` 可关闭，本教程保持默认值。
+两个子命令的 `-package` 含义不同：`translate -package` 选择 **Cargo 包**；`emit -package` 指定 **生成的 Go 包名**。`-roots` 使用完整 Rust 公开路径，多个路径用逗号分隔。默认保留整数溢出检查；`-overflow-checks=false` 可关闭，本教程保持默认值。
 
 ## 4. 创建 Go 调用程序
 
@@ -165,9 +170,9 @@ func run() error {
     inputLen := uintptr(len(source))
 
     // 第一次渲染查询所需长度；容量为 0 时允许输出地址为 0。
-    size := renderer.RenderSvg(ctx, input, inputLen, 0, 0)
+    size := renderer.Fixture_RenderSvg(ctx, input, inputLen, 0, 0)
     output := ctx.Alloc(size, 1)
-    written := renderer.RenderSvg(ctx, input, inputLen, output, size)
+    written := renderer.Fixture_RenderSvg(ctx, input, inputLen, output, size)
     if written != size {
         return fmt.Errorf("SVG length changed: %d -> %d", size, written)
     }
@@ -178,7 +183,7 @@ func run() error {
 
     pngPath := []byte(prefix + ".png")
     path := putBytes(ctx, pngPath)
-    renderer.WritePng(ctx, input, inputLen, path, uintptr(len(pngPath)))
+    renderer.Fixture_WritePng(ctx, input, inputLen, path, uintptr(len(pngPath)))
     fmt.Printf("wrote %s.svg and %s.png\n", prefix, prefix)
     return nil
 }
@@ -193,7 +198,7 @@ func main() {
 
 `Context` 提供具有稳定地址的 Rust 存储；不能直接把 Go `string` 或 `[]byte` 当作 Rust 参数。退出时通过 `defer ctx.Close()` 释放 Context。这个示例先查询 SVG 长度再填充缓冲区，因此 SVG 会渲染两次；PNG 入口也会自行渲染。
 
-生成的导出入口会把未处理的 Rust panic 转成 Go panic，所以调用失败时不会正常返回，也不能靠调用后的 `ctx.Failed()` 检查来捕获。示例保留 panic 传播；需要转换为业务错误时，可在 Go 调用边界使用 `defer` / `recover`。包装层的 `expect` 也意味着无效输入或 PNG 写入失败可能触发 panic。
+生成的导出入口会把未处理的 Rust panic 转成 Go panic，所以调用失败时不会正常返回，也不能靠调用后的 `ctx.Failed()` 检查来捕获。示例保留 panic 传播；包装层的 `expect` 意味着无效输入或 PNG 写入失败可能触发 panic。需要业务错误时，应在 Rust 调用层处理原始 `Result` 和所有权，再返回错误信息；单独用 Go `recover` 不等于释放 Rust panic payload，`Context.Close` 也不接管普通 Rust 堆对象。
 
 `svg` 切片引用 Context 的存储，必须在关闭 Context 或恢复对应存储标记之前写出或复制。批量调用时可以通过 `ctx.Mark()` / `ctx.Restore(mark)` 复用存储；同一个 Context 不能并发使用。
 

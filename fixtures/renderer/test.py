@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Run native Rust -> MIR -> Go SVG/PNG differential tests.
+"""Run native Rust -> MIR -> Go library API and SVG/PNG differential tests.
 
 Run from any directory after oxide-rs/build.sh:
     python3 oxide/fixtures/renderer/test.py
 
 The persistent cache retains reference images, MIR, generated Go and actual
 images when a compiler/runtime stage fails. Use --stage go to retry lowering
-and comparison without rebuilding Rust. Default dependency features stay on.
+and comparison without rebuilding Rust. Default dependency features stay on;
+scene is enabled so the complete library API is available.
 """
 
 import argparse
@@ -17,6 +18,9 @@ import platform
 import shutil
 import subprocess
 import tempfile
+
+from check_api import check_api
+from write_owned_test import write_owned_test
 
 
 def run(args, **kwargs):
@@ -47,14 +51,18 @@ def main():
     reference = cache / "reference"
     mir_path = cache / "oxide.mir.json"
     output = cache / "go"
+    scratch = cache / "tmp"
+    scratch.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     env.update({
+        "TMPDIR": str(scratch),
         "RUSTC": str(sysroot / "bin" / "rustc"),
         "RUSTC_WRAPPER": str(frontend),
         "RUSTC_WORKSPACE_WRAPPER": "",
         "RUSTC_BOOTSTRAP": "1",
         "OXIDE_EXPORT": "",
-        "OXIDE_ROOTS": "oxide_renderer_fixture::render_svg,oxide_renderer_fixture::write_png",
+        # Export the facade's entire public API, including dependency re-exports.
+        "OXIDE_ROOTS": "",
         "RUSTFLAGS": "",
         "CARGO_ENCODED_RUSTFLAGS": "\x1f".join(("-Zalways-encode-mir", "-Zmir-opt-level=0", "-Coverflow-checks=yes")),
         "CARGO_TARGET_DIR": str(target),
@@ -63,6 +71,9 @@ def main():
     if args.stage in ("all", "native"):
         run([sysroot / "bin" / "cargo", "build", *cargo_args, "--bin", "oxide-renderer-native"], env=env)
         run([target / triple / "debug" / "oxide-renderer-native", fixture / "cases", reference], env=env)
+        run([sysroot / "bin" / "cargo", "build", *cargo_args, "--bin", "oxide-renderer-api-native", "--bin", "oxide-renderer-cli-native"], env=env)
+        run([target / triple / "debug" / "oxide-renderer-api-native", reference / "api"], env=env)
+        run(["python3", fixture / "test_cli.py", "--native", target / triple / "debug" / "oxide-renderer-cli-native", "--cache", cache / "cli"], env=env)
     if args.stage in ("all", "export"):
         # Cargo fingerprints the unique final argument, so every requested
         # export runs even when Cargo can reuse all dependency artifacts.
@@ -70,28 +81,46 @@ def main():
             export = Path(stage) / "oxide.mir.json"
             run([sysroot / "bin" / "cargo", "rustc", *cargo_args, "--lib", "--", "--oxide-export=" + str(export)], env=env)
             export.replace(mir_path)
+            export.with_suffix(".api.json").replace(cache / "oxide.mir.api.json")
     if args.stage in ("all", "go"):
+        coverage = check_api(cache / "oxide.mir.api.json", reference / "api" / "cases.json", cli_results_path=cache / "cli" / "native" / "results.json")
+        (cache / "api-coverage.json").write_text(json.dumps(coverage, indent=2) + "\n")
+        print(json.dumps(coverage, sort_keys=True), flush=True)
         output.mkdir(parents=True, exist_ok=True)
-        goenv = dict(os.environ, GOOS="linux", GOARCH=arch, CGO_ENABLED="0", GOWORK="off")
+        goenv = dict(os.environ, GOOS="linux", GOARCH=arch, CGO_ENABLED="0", GOWORK="off", TMPDIR=str(scratch))
+        # The complete library is a large Go package. Keep compiler/vet peaks
+        # bounded without disabling checks; explicit caller settings win.
+        for variable, value in (("GOGC", "25"), ("GOMEMLIMIT", "20GiB"), ("GOMAXPROCS", "4")):
+            goenv.setdefault(variable, value)
         # A complete renderer package produces large compiler objects. Keep
         # both caches on the workspace filesystem instead of a small /tmp
         # tmpfs, and reuse them on subsequent acceptance runs.
         for variable, directory in (("GOTMPDIR", cache / "go-tmp"), ("GOCACHE", cache / "go-cache")):
             directory.mkdir(parents=True, exist_ok=True)
             goenv[variable] = str(directory)
-        run(["go", "run", "./cmd/oxide", "emit", "-mir", mir_path, "-out", output, "-package", "rendererfixture"], cwd=root / "oxide-go", env=goenv)
+        run(["go", "run", "-p=1", "./cmd/oxide", "emit", "-mir", mir_path, "-out", output, "-package", "rendererfixture"], cwd=root / "oxide-go", env=goenv)
         module = root / "oxide-go"
         (output / "go.mod").write_text("module oxide-renderer-conformance\n\ngo 1.27.1\n\nrequire github.com/csbxd/oxide/oxide-go v0.0.0\nreplace github.com/csbxd/oxide/oxide-go => " + json.dumps(str(module)) + "\n")
         shutil.copyfile(fixture / "generated_test.go", output / "oxide_gen_test.go")
+        shutil.copyfile(fixture / "api_generated_test.go", output / "api_generated_test.go")
         shutil.copyfile(fixture / "chaos_test.go", output / "chaos_test.go")
+        shutil.copyfile(fixture / "heap_trace_test.go", output / "heap_trace_test.go")
+        write_owned_test(cache / "oxide.mir.api.json", output)
         for source, destination in ((fixture / "cases", output / "cases"), (reference, output / "reference")):
             if destination.exists():
                 shutil.rmtree(destination)
             shutil.copytree(source, destination)
-        tests = ["go", "test", "-mod=mod", "-count=1", "-timeout=20m", "-v"]
+        tests = ["go", "test", "-p=1", "-mod=mod", "-count=1", "-timeout=20m", "-v"]
         if args.chaos:
-            tests += ["-tags=memory.counters", "-run", "^TestRendererOwnershipChaos$"]
+            tests += ["-tags=memory.counters", "-run", "^Test(RendererOwnershipChaos|PublicOwnedReturns)$"]
         run([*tests, "."], cwd=output, env=goenv)
+        if not args.chaos:
+            cli = output / "cmd" / "renderer"
+            cli.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(fixture / "cli" / "main.go", cli / "main.go")
+            binary = output / "renderer-cli"
+            run(["go", "build", "-p=1", "-mod=mod", "-o", binary, "./cmd/renderer"], cwd=output, env=goenv)
+            run(["python3", fixture / "test_cli.py", "--go", binary, "--cache", cache / "cli"], env=goenv)
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@ func TestRendererHeapTrace(t *testing.T) {
 		if format == "svg" {
 			output := ctx.Alloc(uintptr(len(want)), 1)
 			frame := ctx.Mark()
-			n := RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(want)))
+			n := Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(want)))
 			if n != uintptr(len(want)) {
 				t.Fatalf("SVG length %d want %d", n, len(want))
 			}
@@ -54,7 +54,7 @@ func TestRendererHeapTrace(t *testing.T) {
 		} else {
 			output := putBytes(ctx, []byte(path))
 			frame := ctx.Mark()
-			WritePng(ctx, input, uintptr(len(source)), output, uintptr(len(path)))
+			Fixture_WritePng(ctx, input, uintptr(len(source)), output, uintptr(len(path)))
 			checkFrame(t, ctx, frame)
 			got, err := os.ReadFile(path)
 			if err != nil {

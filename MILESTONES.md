@@ -1,6 +1,6 @@
 # Oxide translation milestones
 
-Snapshot: 2026-09-26. Targets: **linux/amd64 and linux/arm64**.
+Snapshot: 2026-09-27. Targets: **linux/amd64 and linux/arm64**.
 
 This is a support ledger, not a claim of full Rust or standard-library support.
 “Verified subset” means the named cases have generated, compiled Go and agree
@@ -8,6 +8,9 @@ with native Rust on the recorded target. All eight language/library differential
 suites and the complete 72-input renderer corpus execute on native arm64 and
 amd64 hardware, including the current dynamic-layout and large-value ABI changes.
 “Exported” means compiler metadata is available; it does not mean runnable Go.
+The final public-library graph passes all 74 API, 20 CLI and 72-source regression
+cases on both targets, including compiler drop helpers, direct-return ownership,
+exact renderer allocation checks and the three-ledger ownership-chaos regression.
 
 Allocation acceptance checks raw `MemStats.Mallocs` and `TotalAlloc` deltas,
 without averaging. All 4,011 fixture inputs pass 100 warmed calls per target;
@@ -33,6 +36,20 @@ compatibility fallback.
 | M2: ownership and standard library | in progress | alloc types, panic/unwind, TLS and collection behavior verified end to end |
 | M3: dependency closure | full graph compiles, passes default vet and executes on arm64/amd64 | expand execution coverage for required OS/runtime boundaries |
 | M4: mermaid-rs-renderer | 72-case acceptance passed on both native targets with current large-value ABI | all 144 SVG/PNG files per target match native Rust; broader upstream API coverage remains open |
+| M5: renderer public library API | public export and acceptance matrix passed on both native targets | all 977 monomorphic upstream/test roots selected, 139 compiler drop types; 74 API, 20 CLI and 72-source regression cases; 44 dedicated ownership and eight direct renderer-return cases per target; individual derived/default methods and unbounded generic instantiations are not fully tested |
+
+The M4 results describe the two-observer acceptance at commit `6989058`.
+The fixture now re-exports the upstream library without shadowing its names,
+retains default features and additionally enables `scene`. Its scalar test
+observers live in `fixture` and `api`. The expanded public surface has its own
+acceptance gate. The [authoritative API inventory](fixtures/renderer/api-inventory.md)
+identifies 28 public free functions, 32 inherent methods, 18 handwritten trait
+methods, 430 derive-generated methods and 15 callable tuple-variant constructors
+with `scene` enabled. Counting aliases and provided trait defaults gives 1,089
+upstream paths: 973 monomorphic and 116 requiring concrete type/const arguments.
+Four test observers bring the selected root count to 977. Export coverage does
+not imply individual behavioral coverage of every derived/default method;
+blanket implementations and all generic instantiations are not a finite root set.
 
 ## Compiler pipeline
 
@@ -40,6 +57,8 @@ compatibility fallback.
 | --- | --- | --- |
 | Cargo discovery and package selection | implemented, driver tested | pinned Cargo; explicit selected package/library/bin |
 | Repeated exports | verified | unique final rustc export argument forces a fresh root; changing roots in an unchanged crate produces new MIR |
+| Public API selection and aliases | verified export subset | empty roots traverses the public namespace, re-exports, inherent/trait methods, provided defaults and callable constructors; sidecar records canonical trait definitions and generic boundaries; all 977 renderer roots selected on both targets |
+| Public Go root names | verified subset | preserve module/type paths and aliases; UFCS names include type and trait; deterministic encoding and explicit collision errors; direct calls, aliases, methods, track_caller and variadic forwarding covered by root tests |
 | Compiler options | verified | checked/unchecked overflow flags; ambient encoded Rust flags and export roots cannot silently override the request |
 | cfg, modules, macros, traits, generic instances | exported | Cargo/rustc handle these before lowering; no source AST translation fallback |
 | HRTB fn signatures and dyn function reification | metadata verified | `oxide-rs/tests/check.py`, both targets; compiler-erased bound regions |
@@ -105,11 +124,13 @@ not evidence that an entire module is supported.
 | `alloc::sync` | verified Arc subset | payloads with 32/64-byte alignment, clone/drop and nested DSTs pass the 42-case fixture on both targets; weak-reference and concurrency coverage remains open |
 | `std::collections` | renderer-exercised subset | original Rust BTreeMap, HashMap/HashSet, BinaryHeap and VecDeque paths contribute to matching outputs; complete ordering/hash/API conformance remains open |
 | `std::fmt`, `error`, `any`, `panic` | verified subset | 28 native differential cases cover custom hooks, panic_any, catch_unwind/downcast, overflow panic and mixed format! output; complete error/formatting APIs and double-panic paths remain open |
-| `std::fs`, `io`, `path`, `env`, `ffi`, `os` | partial C boundary | real extern-C differential fixture verifies weak slots, variadic open, mkstemp/read/write/lseek/close/unlink, errno and posix_memalign/free; broad std API behavior remains unverified |
+| `std::fs`, `io`, `path`, `ffi`, `os` | verified boundary subset | extern-C fixture verifies weak slots, variadic open, mkstemp/read/write/lseek/close/unlink, errno and posix_memalign/free; directory tests cover fdopendir descriptor ownership, lstat symlink behavior and unlinkat relative removal; both-target API/CLI probes compare configuration/file errors and SVG/PNG/layout-dump output; broad std API behavior remains unverified |
+| `std::env::args_os` | verified startup subset on both targets | actual startup argument bytes, including empty and invalid UTF-8 strings, forward/reverse iteration and preservation after the embedding Go program edits os.Args; environment-variable and full env API conformance remain open |
 | `std::sync`, `thread`, TLS | partial runtime boundary | single-thread renderer Mutex/LazyLock paths execute; Context TLS isolation, C++ destructor LIFO/re-registration and up to four pthread-key destructor passes tested at Context.Close; complete thread exit, synchronization and native thread semantics remain open |
-| `std::time` | implemented subset | monotonic clock helpers; broad layout and behavioral tests pending |
+| `std::time` | verified rendering subset on both targets | real timed render/layout calls and CLI timing check nonnegative fields and exact totals; elapsed durations are not expected to match independent native runs; broad clock/calendar behavior remains unverified |
 | `std::backtrace` / ELF loader boundary | partial | CGO-disabled static ELF main executable/vDSO enumeration; dynamic `PT_INTERP` explicitly rejected. Real Go PC/SP backtraces follow Go stack movement; Rust source symbol/line mapping is not implemented |
-| `std::net`, `process` | unsupported | no complete OS boundary |
+| `std::process` | verified exit subset on both targets | native/Go exit codes, buffered stdout cleanup and C++ TLS destruction match; stack Drop and pthread-key destructors are not run by process exit; process spawning, pipes, signals and broad process APIs remain unverified |
+| `std::net` | unsupported | no complete OS boundary |
 | `std::future`, `task`, async | unsupported | no executor/coroutine acceptance |
 | re-exported core/alloc modules in std | same limits | no separate implementation or compatibility shim |
 
@@ -117,11 +138,88 @@ not evidence that an entire module is supported.
 
 The acceptance input is [fixtures/renderer](fixtures/renderer/Cargo.toml), a
 Rust path dependency on the unchanged upstream `mermaid-rs-renderer` with
-**default features enabled**. Both roots accept arbitrary source bytes:
-`render_svg(source, length, output, capacity)` copies the complete SVG to a
-caller buffer; `write_png(source, length, path, path_length)` invokes the original
-PNG writer. The Go harness only supplies ABI storage and compares bytes; it
-contains no renderer implementation or fixed-case dispatch.
+**default features enabled plus `scene`**. Its facade re-exports the public
+library without shadowing names. Test observers are separate:
+`fixture::render_svg(source, length, output, capacity)` copies the complete SVG;
+`fixture::write_png(source, length, path, path_length)` invokes the PNG writer;
+`fixture::cli_main` invokes the original CLI; and `api::run` executes Rust API
+probes. Go supplies ABI storage, process inputs and comparison oracles, with no
+renderer implementation.
+
+### Expanded public library graph
+
+Pinned rustdoc public reachability and the compiler's `.api.json` sidecar agree
+on every free/inherent/constructor path. The
+[coverage gate](fixtures/renderer/check_api.py) checks all upstream paths,
+canonical trait identities, selection/root symbols and native probe manifests.
+Both target sidecars pass: 1,093 total paths, 977 selected monomorphic roots and
+116 generic declarations. Eight negative controls reject missing roots/aliases,
+unselected APIs, unregistered additions, incorrect traits and stale probes.
+
+| Expanded acceptance | arm64 | amd64 |
+| --- | --- | --- |
+| Native 74 API cases, each size query plus two complete byte results | passed | passed |
+| Native 20 CLI process cases | passed | passed |
+| All 977 public/test export roots and coverage gate | passed | passed |
+| Complete Go generation, compile/link and default vet | final helper graph passed | final helper graph passed |
+| 74 API native/Go comparisons, frame/output guards, three warmed raw allocation windows per case | final graph passed; all 222 windows raw zero | final graph passed, 23.936 s; all 222 windows raw zero |
+| 20 CLI native/Go exit/stdout/stderr/file comparisons | final graph passed | final graph passed, 5.367 s |
+| 72 source / 144 SVG+PNG byte regression using the expanded graph | final graph passed, 165.25 s | final graph passed, 456.118 s |
+| Direct owned returns: eight cases, 24 raw allocation windows, compiler drops and Context closure | passed, 2.84 s; live owners restored, raw Go objects/bytes zero | passed, 6.243 s; live owners restored, raw Go objects/bytes zero |
+| Exact renderer heap checks and fixed-baseline three-ledger chaos | final graph passed, 10.32 s and 53.93 s | final graph passed, 28.503 s and 177.302 s |
+
+The pre-helper public graph had 123,607 MIR functions, approximately 831 MiB
+JSON and 396 Go files on arm64. Final sidecars retain all 977 roots and add 139
+compiler drop types. Acceptance durations above are test durations, not native
+performance comparisons.
+
+The [Rust API probes](fixtures/renderer/api.rs) call the actual configuration,
+strict parser, layout, dimension, quality, theme, timing, scene and constructor
+APIs. Timed APIs execute normally and check total/phase relationships; elapsed
+values are excluded from cross-execution byte equality. Scene output compares
+all Rust Debug commands. Graph map presentation is sorted without discarding
+fields; file errors only replace the caller's temporary path. Concrete serde
+instances are tested, while untested derived/default methods remain explicitly
+marked in the [machine inventory](fixtures/renderer/api-inventory.json).
+
+Direct Go callers receiving owned Rust values have a separate ownership
+acceptance boundary. The initial cached probe observed `String` increasing live owners
+from zero to one, and `Vec<String>` from zero to three; `Context.Close` leaves
+those owners live, while an explicit Rust release returns each baseline to zero.
+This is not a Context mapping leak: closing automatic storage does not invoke
+the returned value's Rust destructor. The 74 API observers perform their own
+Rust drops and therefore do not validate this boundary. Public `DropT<ID>`
+helpers now call actual compiler drop glue. Logical root parameter/return IDs
+and `public_drop_types` select the Rust destructor without guessing from a
+shared Go representation. Small values are consumed by value; large values
+use their initialized caller storage. All raw-bit copies become unusable after
+ownership is consumed. The dedicated 44-case fixture passes on both native
+targets, including exact allocation checks. The
+[direct-return generator](fixtures/renderer/write_owned_test.py) adds eight
+renderer cases: Theme, Config, RenderOptions, successful/failed parse and render,
+and scene rendering that consumes RenderOptions. It calls public Go roots and
+`DropT<ID>` directly, without a Rust release observer. On both targets, each of 24
+measured windows observes owned Rust allocations before Drop, restores its
+live-owner/frame baseline after Drop and records zero raw Go allocations/bytes.
+After Context.Close, Rust and libc counters match the fixed nine-Context warm
+baseline. These eight cases are separate from the 74 observer-based API cases.
+
+The [CLI matrix](fixtures/renderer/test_cli.py) runs separate processes for
+help/version, bad input/options, stdin/stdout, SVG/PNG files, dimensions,
+configuration, both layout dumps, real timing and multi-diagram Markdown.
+It compares exit status, stdout, stderr and every file. Timing stderr retains
+its original measured payload and is checked for schema, nonnegative fields
+and exact sums before its deterministic contract result is compared.
+
+Final arm64 logs are `.cache/renderer-api/{owned-arm64,api-owned-arm64,cli-owned-arm64,regression-owned-arm64}.log`.
+Final amd64 results are `.cache/renderer-api/amd64-final/validation-summary.json`,
+`go-results.json` and `logs/go-*.log`; every acceptance process exited successfully.
+The earlier public API baseline remains under `.cache/renderer-api/amd64/`.
+The small API sidecar permits coverage checks
+without loading the complete MIR. These new results do not replace the older
+4,011-input language/library suites or claim full standard-library coverage.
+
+### Prior SVG/PNG and performance baseline
 
 The corpus contains **72 inputs across 23 diagram types**: the original three
 examples and all 69 upstream `.mmd` fixtures, copied unchanged with directory
@@ -131,10 +229,10 @@ and PNG bytes. All 72 native cases pass on **both architectures**, producing
 **144 reference files per target**.
 Neither errors nor unequal output are skipped by the comparison gate.
 
-The two-root export rebuilds `std,panic_unwind` and contains about 100,000
+The preceding two-observer export rebuilt `std,panic_unwind` and contained about 100,000
 functions, with actual assertion calls, unwind paths and RustCall adaptation.
 The shared writer emits numbered Go source files for the whole program.
-The current graph passes generation, compilation, default vet and **all 72 cases
+That graph passed generation, compilation, default vet and **all 72 cases
 on both native targets**, with **144 SVG/PNG files per target byte-for-byte equal
 to native Rust**. amd64 references were generated on the same machine and every
 saved output was independently compared. The earlier amd64 failure in
@@ -150,7 +248,7 @@ tails and packed slice/trait fields, with zero Go allocations in warmed calls.
 With the final dynamic layout, large-value ABI and off-heap registry, full Go
 comparisons took **168.20 seconds on arm64** and **335.699 seconds on amd64**.
 These are acceptance durations, not comparable native rendering benchmarks.
-The full corpus passes again on both targets with the final generated code.
+Those timings belong to the preceding graph, not the expanded API acceptance.
 
 Ordinary floating-point MIR operations preserve individual rounding;
 native f32/f64 regression cases cover the unintended Go fusion found while
@@ -160,7 +258,7 @@ SSE operations, CPUID/XGETBV, integer helpers, allocator, backtrace and libc
 tests with updated raw allocation checks. The 18 upstream/registry tests also pass on
 that hardware; final logs are retained with the allocator revalidation artifacts.
 
-The final warmed-call benchmarks use the off-heap registry. arm64 pins both
+The recorded two-observer warmed-call benchmarks use the off-heap registry. arm64 pins both
 Go and native Rust to the same performance core, **CPU 2**; amd64 compares both
 on the same remote hardware. Each entry is the median of three runs with three
 timed calls per run (`-benchtime=3x -count=3` for Go). All 18 Go measurements per
@@ -199,7 +297,7 @@ Rust heap allocations still occur. Fixed affinity follows observed hybrid-CPU
 scheduling variance, and earlier unpinned/rounded measurements remain in the
 cache rather than being substituted into this table.
 
-Current arm64 evidence under `.cache/renderer-conformance/` is
+The recorded arm64 benchmark evidence under `.cache/renderer-conformance/` is
 `benchmark-registry-final.json`, `bench-registry-pinned.log` and
 `native-bench-pinned.csv`. Final amd64 evidence is under
 `.cache/renderer-amd64/remote/registry/logs/`, including `benchmark-result.json`,
@@ -226,9 +324,9 @@ alignment, relocation, aliases and malformed-image rejection.
 References, MIR, generated Go and actual outputs are retained under
 `.cache/renderer-conformance/`, preserving case-relative paths. The
 [test script](fixtures/renderer/test.py) compares complete SVG **and** PNG bytes.
-The final build passes the complete corpus on both targets, including large-value
-storage and calls. Fixture coverage does not establish full upstream
-parser/layout/render API coverage. The syntax inventory is
+The preceding build passed the complete corpus on both targets, including
+large-value storage and calls. Expanded API acceptance is tracked separately
+above; neither matrix proves every implementation branch. The syntax inventory is
 [mermaid-rs-renderer.audit.md](mermaid-rs-renderer.audit.md).
 
 The [Rust heap allocator](oxide-go/runtime/allocator_linux.go) uses the
@@ -270,8 +368,9 @@ collector also records SHA-256 manifests.
 
 From `oxide/oxide-go`:
 
-The final `go test ./...` run passes with the current allocator and shared
-exact-count helpers; the retained log is `.cache/final-go-tests.log`.
+The final `go test ./...` run passes, including the public-root/drop-helper
+changes; the retained log is `.cache/renderer-api/final-go-test.log`.
+The preceding allocator checkpoint is retained in `.cache/final-go-tests.log`.
 
 ```sh
 go test ./...
@@ -286,6 +385,40 @@ GOOS=linux GOARCH=amd64 go test -c ./runtime -o /tmp/oxide-runtime-amd64.test
 From `oxide`, `python3 oxide-rs/tests/check.py` verifies compiler metadata on
 both targets, including HRTB signatures, RustCall adaptation, assertion calls,
 caller locations, true function reification, weak linkage and C variadics.
+Public-root checks also cover re-exports, callable constructors, canonical trait
+identities, provided defaults and generic declarations.
+
+The separate [process differential fixture](oxide-go/internal/mir/process_conformance_test.go)
+passes on both native targets. Five argument byte vectors include empty,
+Unicode and invalid UTF-8 inputs; each is compared before and after the Go host
+changes `os.Args`, giving ten startup comparisons. Four exit codes (`0`, `7`,
+`-1`, `256`) compare native status, buffered stdout and TLS destructor output.
+The observed GNU exit behavior runs C++ TLS destructors but not Rust stack Drop
+or pthread-key destructors. These 14 process comparisons are additional to,
+and not included in, the historical eight-suite total of 4,011. Run from
+`oxide-go`:
+
+```sh
+OXIDE_RUST_TESTS=1 go test ./internal/mir \
+  -run '^TestRustProcessConformance$' -timeout 30m -v
+```
+
+The [public-ownership fixture](oxide-go/internal/mir/public_ownership_test.go)
+adds 44 native cases per target and 11 compiler-identified drop types. An
+external Go package directly consumes generated results with `DropT<ID>`;
+there is no Rust release wrapper. Strings, `Vec<String>`, thin/dynamic boxes,
+64-byte alignment, 256 KiB values, enums, zero-sized values, borrowed elements
+and destructor-panic cleanup all pass. Each input checks 100 warmed calls with
+exact Go object/byte deltas, Rust live-owner baselines, restored frames and
+native drop/panic results. Both targets compile with `-smallframes` and default
+vet and execute against their own pinned native Rust references. Results are
+retained in `.cache/public-ownership-conformance/`, separately from the older
+4,011-input suite. Run from `oxide-go`:
+
+```sh
+OXIDE_RUST_TESTS=1 go test ./internal/mir \
+  -run '^TestRustPublicOwnershipConformance$' -timeout 30m -count=1 -v
+```
 
 | Differential fixture | Native comparisons per target | Generated amd64 | Generated arm64 | Raw Go allocation check (both targets) |
 | --- | ---: | --- | --- | --- |
@@ -393,6 +526,11 @@ python3 fixtures/renderer/test.py --stage go
 # Rebuild native references or re-export the Rust graph separately:
 python3 fixtures/renderer/test.py --stage native
 python3 fixtures/renderer/test.py --stage export
+# Check the small public API sidecar independently:
+python3 fixtures/renderer/check_api.py \
+  .cache/renderer-conformance/oxide.mir.api.json \
+  --cases .cache/renderer-conformance/reference/api/cases.json \
+  --cli-results .cache/renderer-conformance/cli/native/results.json
 # After generating the host-target package, measure the original three inputs:
 cd .cache/renderer-conformance/go
 CGO_ENABLED=0 GOWORK=off GOCACHE="$PWD/../go-cache" GOTMPDIR="$PWD/../go-tmp" \
@@ -428,11 +566,19 @@ OXIDE_RENDERER_TESTS=1 go test ./internal/mir \
 Renderer acceptance is separately gated because it builds the complete
 application dependency graph. Setting either gate runs the requested check;
 a compiler or runtime failure is reported as a test failure.
+The runner preserves default vet while using `-p=1` and, unless explicitly
+overridden in the environment, `GOGC=25`, `GOMEMLIMIT=20GiB`, `GOMAXPROCS=4` for
+Go build/test commands. These control build/test concurrency and GC pressure;
+the soft memory setting neither reserves 20 GiB nor describes a per-call cost.
 
 Update this ledger in the same change as each newly verified library family.
 Do not promote an exported module to “supported” based only on graph traversal.
 
 ## Ownership and leak chaos
+
+The recorded renderer chaos results below use the preceding two-observer
+graph. They remain evidence for those runs; the expanded public API graph has
+separate export, API/CLI, SVG/PNG and final ownership replay results above.
 
 These checks add live-owner and mapping-lifetime oracles to the existing native
 result/allocation acceptance. They do not use RSS stability or rounded Go

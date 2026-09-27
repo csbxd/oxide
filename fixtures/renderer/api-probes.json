@@ -1,0 +1,794 @@
+{
+  "_comment": "Explicit behavior probes, maintained by API definition. Discovery comes from rustdoc and the compiler sidecar, never this mapping. New handwritten callables require an entry; unlisted derived/default methods remain individually untested.",
+  "definitions": {
+    "<mermaid_rs_renderer::Config as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::FlowchartLayoutEngine as core::convert::From<LayoutEngineArg>>::from": {
+      "probes": [
+        "ir_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::Graph as core::default::Default>::default": {
+      "probes": [
+        "serde_traits"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::LayoutConfig as core::clone::Clone>::clone": {
+      "probes": [
+        "serde_traits"
+      ],
+      "process_probes": [],
+      "probe_status": "concrete_trait_instance"
+    },
+    "<mermaid_rs_renderer::LayoutConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::LayoutConfig as serde_core::de::Deserialize<'de>>::deserialize": {
+      "probes": [
+        "serde_traits"
+      ],
+      "process_probes": [],
+      "probe_status": "concrete_trait_instance"
+    },
+    "<mermaid_rs_renderer::LayoutConfig as serde_core::ser::Serialize>::serialize": {
+      "probes": [
+        "serde_traits"
+      ],
+      "process_probes": [],
+      "probe_status": "concrete_trait_instance"
+    },
+    "<mermaid_rs_renderer::ParseError as core::fmt::Debug>::fmt": {
+      "probes": [
+        "strict_directive",
+        "strict_unclosed",
+        "strict_participant"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::ParseError as core::fmt::Display>::fmt": {
+      "probes": [
+        "strict_directive",
+        "strict_unclosed",
+        "strict_participant"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::RenderConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::RenderOptions as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::Theme as serde_core::de::Deserialize<'de>>::deserialize": {
+      "probes": [
+        "serde_traits"
+      ],
+      "process_probes": [],
+      "probe_status": "concrete_trait_instance"
+    },
+    "<mermaid_rs_renderer::Theme as serde_core::ser::Serialize>::serialize": {
+      "probes": [
+        "serde_traits"
+      ],
+      "process_probes": [],
+      "probe_status": "concrete_trait_instance"
+    },
+    "<mermaid_rs_renderer::config::C4Config as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::FlowchartAutoSpacingConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::FlowchartLayoutConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::FlowchartObjectiveConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::FlowchartRoutingConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::GitGraphConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::MindmapConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::PieConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::RequirementConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::TimelineConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::config::TreemapConfig as core::default::Default>::default": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "<mermaid_rs_renderer::layout::LayoutInvariantError as core::fmt::Display>::fmt": {
+      "probes": [
+        "ir_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Direction::from_timeline_token": {
+      "probes": [
+        "ir_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Direction::from_token": {
+      "probes": [
+        "ir_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::FlowchartLayoutEngine::as_str": {
+      "probes": [
+        "ir_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Graph::ensure_node": {
+      "probes": [
+        "ir_methods",
+        "serde_traits"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Graph::new": {
+      "probes": [
+        "ir_methods",
+        "serde_traits"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::LayoutConfig::class_label_line_height": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::LayoutStageMetrics::total_us": {
+      "probes": [
+        "layout_metrics",
+        "timing_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Paint::Solid": {
+      "probes": [
+        "construct_other"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::RadarEntry::Named": {
+      "probes": [
+        "construct_other"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::RadarEntry::Positional": {
+      "probes": [
+        "construct_other"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::RenderDetailedResult::total_ms": {
+      "probes": [
+        "detailed_timing",
+        "timing_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::RenderDetailedResult::total_us": {
+      "probes": [
+        "detailed_timing",
+        "timing_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::RenderOptions::mermaid_default": {
+      "probes": [
+        "option_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::RenderOptions::modern": {
+      "probes": [
+        "option_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::RenderOptions::with_node_spacing": {
+      "probes": [
+        "option_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::RenderOptions::with_preferred_aspect_ratio": {
+      "probes": [
+        "option_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::RenderOptions::with_preferred_aspect_ratio_parts": {
+      "probes": [
+        "option_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::RenderOptions::with_rank_spacing": {
+      "probes": [
+        "option_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::RenderResult::total_ms": {
+      "probes": [
+        "timing",
+        "timing_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::RenderResult::total_us": {
+      "probes": [
+        "timing",
+        "timing_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::SvgDimensions::aspect_ratio": {
+      "probes": [
+        "dimension_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::SvgDimensions::viewbox_aspect_ratio": {
+      "probes": [
+        "dimension_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Theme::dark": {
+      "probes": [
+        "theme_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Theme::forest": {
+      "probes": [
+        "theme_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Theme::from_name": {
+      "probes": [
+        "theme_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Theme::mermaid_default": {
+      "probes": [
+        "theme_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Theme::modern": {
+      "probes": [
+        "theme_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::Theme::neutral": {
+      "probes": [
+        "theme_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::compute_layout": {
+      "probes": [
+        "layout"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::compute_layout_with_metrics": {
+      "probes": [
+        "layout_metrics",
+        "layout_metrics_sequence"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::config::RequirementConfig::divider_offset": {
+      "probes": [
+        "config_defaults"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::config::load_config": {
+      "probes": [
+        "config_none",
+        "config_file",
+        "config_json_error",
+        "config_missing"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::config::load_config_with_theme": {
+      "probes": [
+        "config_theme",
+        "config_theme_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::config::parse_aspect_ratio_value": {
+      "probes": [
+        "aspect_ratios"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::ir::ArchDir::from_char": {
+      "probes": [
+        "ir_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::ir::ArchDir::is_horizontal": {
+      "probes": [
+        "ir_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::ir::C4ShapeKind::as_str": {
+      "probes": [
+        "ir_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::C4": {
+      "probes": [
+        "construct_c4"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::Error": {
+      "probes": [
+        "construct_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::Gantt": {
+      "probes": [
+        "construct_gantt"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::GitGraph": {
+      "probes": [
+        "construct_gitgraph"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::Journey": {
+      "probes": [
+        "construct_journey"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::Pie": {
+      "probes": [
+        "construct_pie"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::Quadrant": {
+      "probes": [
+        "construct_quadrant"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::Radar": {
+      "probes": [
+        "construct_radar"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::Sankey": {
+      "probes": [
+        "construct_sankey"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::Sequence": {
+      "probes": [
+        "construct_sequence"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::Timeline": {
+      "probes": [
+        "construct_timeline"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::DiagramData::XYChart": {
+      "probes": [
+        "construct_xychart"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_fn_pointer_probe"
+    },
+    "mermaid_rs_renderer::layout::FlowchartQualityMetrics::geometry_debt_count": {
+      "probes": [
+        "ir_methods",
+        "quality",
+        "quality_other"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::layout::FlowchartQualityMetrics::hard_violation_count": {
+      "probes": [
+        "ir_methods",
+        "quality",
+        "quality_other"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::layout::flowchart_quality_metrics": {
+      "probes": [
+        "quality",
+        "quality_other"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::layout::validate_layout_invariants": {
+      "probes": [
+        "layout_valid",
+        "layout_invalid"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::layout_dump::LayoutDump::from_layout": {
+      "probes": [
+        "layout",
+        "layout_dump"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::layout_dump::write_layout_dump": {
+      "probes": [
+        "layout_dump",
+        "layout_dump_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::measure": {
+      "probes": [
+        "measure",
+        "measure_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::measure_svg_dimensions": {
+      "probes": [
+        "measure_dimensions"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::measure_with_dimensions": {
+      "probes": [
+        "measure_dimensions"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::merge_init_config": {
+      "probes": [
+        "merge_config",
+        "merge_nonobject"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::parse_mermaid": {
+      "probes": [
+        "parse",
+        "parse_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::parse_mermaid_strict": {
+      "probes": [
+        "strict_parse",
+        "strict_directive",
+        "strict_unclosed",
+        "strict_end",
+        "strict_arrow",
+        "strict_click",
+        "strict_participant"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::render": {
+      "probes": [
+        "render",
+        "render_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::render::arrowhead_inset": {
+      "probes": [
+        "ir_methods"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::render::render_svg_with_dimensions": {
+      "probes": [
+        "render_svg_dimensions"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::render_scene": {
+      "probes": [
+        "scene",
+        "scene_class",
+        "scene_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::render_strict": {
+      "probes": [
+        "render_strict",
+        "render_strict_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::render_svg": {
+      "probes": [
+        "render_svg"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::render_with_detailed_timing": {
+      "probes": [
+        "detailed_timing",
+        "detailed_timing_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::render_with_options": {
+      "probes": [
+        "render_options",
+        "render_init"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::render_with_timing": {
+      "probes": [
+        "timing",
+        "timing_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::run": {
+      "probes": [],
+      "process_probes": [
+        "help",
+        "version",
+        "unknown-flag",
+        "bad-ratio",
+        "empty-input",
+        "missing-file",
+        "stdin-svg",
+        "implicit-stdin",
+        "svg-file",
+        "png-file",
+        "png-missing-output",
+        "size",
+        "options",
+        "config",
+        "invalid-config",
+        "layout-dumps",
+        "timing",
+        "markdown",
+        "markdown-size",
+        "markdown-empty"
+      ],
+      "probe_status": "process_probe"
+    },
+    "mermaid_rs_renderer::validator::validate": {
+      "probes": [
+        "validate",
+        "validate_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::write_layered_layout_dump": {
+      "probes": [
+        "layered_dump",
+        "layered_dump_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::write_output_png": {
+      "probes": [
+        "write_png",
+        "write_png_invalid",
+        "write_png_error"
+      ],
+      "process_probes": [],
+      "probe_status": "direct_probe"
+    },
+    "mermaid_rs_renderer::write_output_svg": {
+      "probes": [
+        "write_svg",
+        "write_svg_error"
+      ],
+      "process_probes": [
+        "stdin-svg",
+        "implicit-stdin"
+      ],
+      "probe_status": "direct_probe"
+    }
+  },
+  "process_cases": [
+    "help",
+    "version",
+    "unknown-flag",
+    "bad-ratio",
+    "empty-input",
+    "missing-file",
+    "stdin-svg",
+    "implicit-stdin",
+    "svg-file",
+    "png-file",
+    "png-missing-output",
+    "size",
+    "options",
+    "config",
+    "invalid-config",
+    "layout-dumps",
+    "timing",
+    "markdown",
+    "markdown-size",
+    "markdown-empty"
+  ]
+}

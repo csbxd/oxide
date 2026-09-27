@@ -5,7 +5,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-mermaid-rs-renderer = { path = "../../../mermaid-rs-renderer" }
+mermaid-rs-renderer = { path = "../../../mermaid-rs-renderer", features = ["scene"] }
+serde_json = "1.0"
 
 [lib]
 path = "lib.rs"
@@ -21,6 +22,14 @@ path = "bench.rs"
 [[bin]]
 name = "oxide-renderer-leak-native"
 path = "leak_native.rs"
+
+[[bin]]
+name = "oxide-renderer-api-native"
+path = "api_native.rs"
+
+[[bin]]
+name = "oxide-renderer-cli-native"
+path = "cli_native.rs"
 
 [profile.dev]
 debug = "line-tables-only"

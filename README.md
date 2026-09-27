@@ -9,13 +9,18 @@ in development. **mermaid-rs-renderer passes all 72 acceptance inputs across
 23 diagram types on native linux/arm64 and linux/amd64**, with SVG and PNG
 byte-for-byte equal to native Rust on the same target. Eight language/library
 suites also pass 4,011 native comparisons per target, including large-value
-storage and panic cleanup. See
+storage and panic cleanup. The expanded library fixture exports 977 public/test
+roots with default features and `scene`: all 74 API probes, 20 isolated CLI
+cases and the 72-source regression pass on both native targets. The final graph
+with 139 compiler drop types also passes eight direct owned-return cases,
+exact allocation checks and the ownership-chaos regression on both targets. See
 [MILESTONES.md](MILESTONES.md) for tested support and remaining work.
 
 Allocation checks use raw `MemStats.Mallocs` and `TotalAlloc` deltas. All 4,011
 inputs pass on each native target with zero increments over 100 calls each.
-The original three renderer inputs also pass three fresh exact-counter
-processes (18 calls each) and 18 benchmark measurements per target, all with
+At the preceding renderer checkpoint, the original three inputs also passed
+three fresh exact-counter processes (18 calls each) and 18 benchmark
+measurements per target, all with
 zero raw Go allocations and bytes. These measure warmed calls; Rust heap
 allocations still occur.
 
@@ -38,23 +43,46 @@ Requirements: Linux amd64/arm64, Go 1.27.1, Python 3.11+ with safe tar extractio
 support, and a linker usable by rustc. Bootstrap downloads the pinned compiler,
 rustc-dev, rust-src and both target standard libraries with checksum verification.
 
+The complete renderer graph needs substantial build memory. Its test script
+uses `-p=1` and defaults to `GOGC=25`, `GOMEMLIMIT=20GiB`, `GOMAXPROCS=4` for Go
+build/test commands while retaining vet. Explicit environment values override
+these defaults. The memory limit is a soft GC setting, not a reservation or a
+per-render allocation.
+
 ```sh
 ./oxide-rs/build.sh
 cd oxide-go
 go build -o ../bin/oxide ./cmd/oxide
 ../bin/oxide translate -manifest /absolute/path/Cargo.toml \
-  -target linux/arm64 -roots crate_name::function \
+  -target linux/arm64 \
   -out /absolute/path/generated
 ```
+
+An omitted `-roots` exports the public callable surface: free functions,
+re-exports, inherent methods, callable constructors and monomorphic trait
+methods, including provided defaults. `-roots crate_name::function` selects an
+explicit subset. Generic declarations remain in the API inventory and require
+concrete Rust instances; the compiler does not invent type arguments.
 
 Generated packages import `github.com/csbxd/oxide/oxide-go/runtime`; add this
 module to the consuming project's Go module (a local `replace` is useful during
 development). Outputs are numbered Go source files (`oxide_gen_00000.go`,
-`oxide_gen_00001.go`, ...), `oxide.mir.json` and, when needed, `oxide_alloc.bin`.
+`oxide_gen_00001.go`, ...), `oxide.mir.json`, the small `oxide.mir.api.json`
+inventory and, when needed, `oxide_alloc.bin`.
 Keep all generated Go files and the allocation image together for `go:embed`.
 Both `translate` and `emit` use the same writer and preserve declaration/init
 order across files. Each output has a target-specific Go build constraint; run
 translation separately for each target.
+
+Root names preserve public Rust paths and aliases. For example,
+`crate::render` becomes `Render`, `crate::layout::render` becomes
+`Layout_Render`, and `crate::RenderOptions::modern` becomes
+`RenderOptions_Modern`. Trait methods use UFCS paths and encode the type/trait
+in their Go names; naming collisions fail explicitly. The sidecar records the
+public path, resolved definition, canonical trait, generic status and selected
+root symbol. Logical parameter/result type IDs and `public_drop_types` preserve
+the Rust ownership type even when multiple types share one Go representation.
+The sidecar can be checked without reading the full MIR file.
 
 `-overflow-checks=false` selects Rust's unchecked arithmetic profile. The default
 is checked. Cargo dependencies are cached, while the selected crate is exported
@@ -69,30 +97,60 @@ python3 fixtures/renderer/test.py
 python3 fixtures/renderer/test.py --stage go
 ```
 
-The [Rust fixture](fixtures/renderer/lib.rs) depends on the unchanged upstream
-renderer with default features enabled. Its two roots accept source bytes,
-render SVG into a caller buffer and write PNG using the original renderer. The
-[Go harness](fixtures/renderer/generated_test.go) only invokes those roots and
-compares every output byte. Inputs include the original three examples and all
-69 unchanged upstream fixture files, with their [provenance and license](fixtures/renderer/cases/upstream/README.md)
+The [Rust fixture](fixtures/renderer/lib.rs) re-exports the unchanged upstream
+library, preserving default features and additionally enabling `scene`. Its
+scalar observers live in `fixture` and `api`, without shadowing library names:
+`fixture::render_svg` copies a complete SVG to caller storage,
+`fixture::write_png` calls the PNG writer, and `api::run` executes the Rust API
+probes. Their Go names are `Fixture_RenderSvg`, `Fixture_WritePng` and
+`Api_Run`. The Go harnesses only supply ABI storage and compare results. Inputs
+include the original three examples and all 69 unchanged upstream fixture files,
+with their [provenance and license](fixtures/renderer/cases/upstream/README.md)
 preserved. Native Rust successfully renders all 72 cases twice, producing 144
 deterministic SVG/PNG reference files under `.cache/renderer-conformance/reference/`.
 Cached MIR, generated Go and actual output stay in that cache for diagnosis.
 
-The two-root graph contains about 100,000 functions. Generation, compilation,
-default test-time vet checks and all 144 SVG/PNG byte comparisons pass on both
-native targets with the current layout, large-value ABI and allocator code.
+The [API inventory](fixtures/renderer/api-inventory.md) records 1,089 upstream
+callable paths: 973 monomorphic paths and 116 generic declarations. Four fixture
+observers bring the selected root count to 977. Pinned rustdoc and compiler
+metadata independently identify free functions, inherent/trait methods,
+constructors, aliases and feature gates. The coverage gate rejects missing
+exports. It does not claim an individual behavioral test for every derived or
+provided trait method, or every generic instantiation.
+Direct Go ownership has a separate acceptance gate: the API probes perform
+their drops inside Rust, and do not prove that a Go caller can release an owned
+`String` or `Vec<String>`. `Context.Close` releases automatic storage,
+not those heap owners. Public `DropT<ID>` helpers now call the compiler's real
+drop glue; a separate 44-case fixture passes on both targets. Direct renderer
+ownership also passes eight cases and 24 exact allocation windows per target.
+Drop consumes the value and all raw-bit copies: do not reuse or drop any copy
+again.
+
+The public API baseline has 123,607 functions and 396 Go files on arm64;
+generation, compilation, linking and default vet pass on both targets. All 74
+native/Go API comparisons pass, including configuration, strict parsing, layout, dimensions,
+timing, scene commands and constructors. Each also passes three warmed raw
+Go allocation/byte checks. All 20 CLI process comparisons pass for exit status,
+stdout, stderr and files. Real timing values are checked for valid relationships
+instead of requiring equal elapsed times. The 72-source SVG/PNG regression also
+passes on both targets. The final metadata adds 139 compiler drop types without
+changing the 977-root API. Both targets have repeated all those comparisons plus
+direct-return ownership, exact renderer allocation and three-ledger ownership
+chaos with the final generated graph.
+
+The preceding two-observer graph, containing about 100,000 functions, passed
+all 144 SVG/PNG byte comparisons on both targets.
 Dynamic field projections include runtime tail alignment, nested tails and
 packed alignment caps, independently covered by 42 native differential cases.
-The final packages use Context storage for large Rust values and have passed
-the complete renderer corpus again.
+Generated packages use Context storage for large Rust values.
 
 Ordinary f32/f64 MIR operations preserve individual rounding, preventing
 unintended Go floating-point fusion;
 native differential regressions cover this renderer-relevant behavior. These
 fixture results do not establish complete Rust or upstream API coverage.
-The original three inputs have matching Go/native benchmarks. Go's median
-elapsed times are 1.79–2.38 times Rust's on arm64 and 1.13–1.85 times Rust's on
+The preceding two-observer checkpoint has matching Go/native benchmarks for
+the original three inputs. Go's median elapsed times are 1.79–2.38 times Rust's
+on arm64 and 1.13–1.85 times Rust's on
 amd64. These are small-sample dev-build comparisons; throughput still needs
 work. Both measure zero raw Go allocations and bytes in the Go runs.
 [Measurement conditions and timings](MILESTONES.md#renderer-checkpoint) are
@@ -225,11 +283,25 @@ exercise Rust-owned payloads, hooks, downcasts and cleanup, including null vtabl
 destructor slots and exactly-once drops. Go only invokes the roots and compares
 results. The renderer has a separate byte-equivalence and exact-allocation gate.
 
+The separate [process fixture](oxide-go/internal/mir/process_conformance_test.go)
+passes on both native targets: five startup byte-argument inputs, each checked
+normally and after Go `os.Args` is changed, plus four process-exit cases.
+It preserves empty/non-UTF-8 argument bytes and compares exit codes, buffered
+stdout cleanup and TLS destruction with native Rust. This tests a process API
+subset, not spawning, signals or general thread-exit behavior.
+
+The public-ownership fixture adds 44 cases per target, using 11 compiler drop
+types from an external Go package. It covers strings, vectors, boxes, dynamic
+and aligned values, large storage, enums, zero-sized values and panic cleanup.
+All 100 warmed calls per input return Rust live owners and Context frames to
+baseline with raw zero Go objects/bytes. These are separate from the historical
+4,011-input suite and the eight renderer-specific owned-return cases per target.
+
 The [compiler metadata tests](oxide-rs/tests/check.py) cover both targets: HRTB
 signatures, trait vtables, struct DSTs, true function reification, RustCall tuple
 adaptation, compiler assertion calls, caller locations, scalar/scalar-pair value
 ABI metadata, weak external linkage and C variadic signatures. The separately
-gated 72-case renderer check is:
+gated public API, CLI and 72-source renderer check is:
 
 ```sh
 cd oxide-go
@@ -252,6 +324,8 @@ Context/allocator/static-loader checks and translated Rust ownership chaos pass
 on native arm64 and amd64; arm64 race runs also pass. The final renderer test
 passes **240 randomized calls per target** across two independent processes,
 with native output equality and all three ownership ledgers fixed at baseline.
+These recorded renderer ownership runs precede the expanded public API graph;
+its native/Go API and CLI results are tracked separately above.
 
 From `oxide-go`:
 

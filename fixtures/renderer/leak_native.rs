@@ -63,7 +63,7 @@ fn main() {
         for (name, input, svg, png) in &samples {
             let before = LIVE.load(Relaxed);
             let mut render = || unsafe {
-                oxide_renderer_fixture::render_svg(
+                oxide_renderer_fixture::fixture::render_svg(
                     input.as_ptr(),
                     input.len(),
                     buffer.as_mut_ptr(),
@@ -80,7 +80,7 @@ fn main() {
             println!("{round},svg,{name},{before},{after},{}", after - before);
             let before = LIVE.load(Relaxed);
             let render = || unsafe {
-                oxide_renderer_fixture::write_png(
+                oxide_renderer_fixture::fixture::write_png(
                     input.as_ptr(),
                     input.len(),
                     path.as_ptr(),

@@ -45,9 +45,9 @@ func TestRendererExactGoHeap(t *testing.T) {
 				frame := ctx.Mark()
 				invoke := func() uintptr {
 					if format == "svg" {
-						return RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage)))
+						return Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage)))
 					}
-					WritePng(ctx, input, uintptr(len(source)), pathPointer, uintptr(len(path)))
+					Fixture_WritePng(ctx, input, uintptr(len(source)), pathPointer, uintptr(len(path)))
 					return uintptr(len(want))
 				}
 				check := func(size uintptr) {
@@ -125,7 +125,7 @@ func TestRendererMatchesNativeRust(t *testing.T) {
 			for i := range storage {
 				storage[i] = 0xa5
 			}
-			size := RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage)))
+			size := Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage)))
 			checkFrame(t, ctx, frame)
 			if size != uintptr(len(want)) {
 				t.Fatalf("SVG length: translated %d, native Rust %d", size, len(want))
@@ -149,7 +149,7 @@ func TestRendererMatchesNativeRust(t *testing.T) {
 			}
 			path := putBytes(ctx, []byte(outputPNG))
 			frame = ctx.Mark()
-			WritePng(ctx, input, uintptr(len(source)), path, uintptr(len(outputPNG)))
+			Fixture_WritePng(ctx, input, uintptr(len(source)), path, uintptr(len(outputPNG)))
 			checkFrame(t, ctx, frame)
 			ctx.Restore(inputFrame)
 			got, err := os.ReadFile(outputPNG)
@@ -183,7 +183,7 @@ func BenchmarkRendererSVG(b *testing.B) {
 			output := ctx.Alloc(uintptr(len(want)), 1)
 			storage := unsafe.Slice((*byte)(unsafe.Pointer(output)), len(want))
 			frame := ctx.Mark()
-			if size := RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage))); size != uintptr(len(want)) {
+			if size := Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage))); size != uintptr(len(want)) {
 				b.Fatalf("SVG length: translated %d, native Rust %d", size, len(want))
 			}
 			checkFrame(b, ctx, frame)
@@ -195,7 +195,7 @@ func BenchmarkRendererSVG(b *testing.B) {
 			runtime.ReadMemStats(&before)
 			b.StartTimer()
 			for i := 0; i < b.N; i++ {
-				if size := RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage))); size != uintptr(len(want)) {
+				if size := Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage))); size != uintptr(len(want)) {
 					b.Fatalf("SVG length: translated %d, native Rust %d", size, len(want))
 				}
 				checkFrame(b, ctx, frame)
@@ -227,7 +227,7 @@ func BenchmarkRendererPNG(b *testing.B) {
 			input := putBytes(ctx, source)
 			path := putBytes(ctx, []byte(output))
 			frame := ctx.Mark()
-			WritePng(ctx, input, uintptr(len(source)), path, uintptr(len(output)))
+			Fixture_WritePng(ctx, input, uintptr(len(source)), path, uintptr(len(output)))
 			checkFrame(b, ctx, frame)
 			got, err := os.ReadFile(output)
 			if err != nil {
@@ -241,7 +241,7 @@ func BenchmarkRendererPNG(b *testing.B) {
 			runtime.ReadMemStats(&before)
 			b.StartTimer()
 			for i := 0; i < b.N; i++ {
-				WritePng(ctx, input, uintptr(len(source)), path, uintptr(len(output)))
+				Fixture_WritePng(ctx, input, uintptr(len(source)), path, uintptr(len(output)))
 				checkFrame(b, ctx, frame)
 			}
 			b.StopTimer()
