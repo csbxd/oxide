@@ -65,6 +65,8 @@ func TestMIRDriver(t *testing.T) {
 		}
 	}
 	cfg.OverflowChecks = false
+	cfg.Features = "scene,custom"
+	cfg.NoDefaultFeatures = true
 	if _, err := Run(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -128,6 +130,11 @@ func TestDriverHelper(t *testing.T) {
 	count, _ := os.ReadFile(countPath)
 	if len(count) >= 4 {
 		checks = "no"
+		if !strings.Contains(strings.Join(args, " "), "--features scene,custom") || !strings.Contains(strings.Join(args, " "), "--no-default-features") {
+			t.Fatal("missing requested Cargo features", args)
+		}
+	} else if strings.Contains(strings.Join(args, " "), "--no-default-features") {
+		t.Fatal("disabled default features without request", args)
 	}
 	if flags != "-Zalways-encode-mir\x1f-Zmir-opt-level=0\x1f-Coverflow-checks="+checks || os.Getenv("RUSTFLAGS") != "" || os.Getenv("OXIDE_EXPORT") != "" {
 		t.Fatalf("compiler environment not isolated: %q", flags)

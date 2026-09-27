@@ -47,21 +47,22 @@ func TestLargeValueRootsAndConstructor(t *testing.T) {
 import("testing";"unsafe"; oxide "github.com/csbxd/oxide/oxide-go/runtime")
 func TestRoots(t *testing.T) {
  ctx:=oxide.NewContext();defer ctx.Close()
- input:=ctx.Alloc(256<<10,64); output:=ctx.Alloc(256<<10,64)
- bytes:=unsafe.Slice((*byte)(unsafe.Pointer(input)),256<<10)
+ input:=MutateTypes.Params[0].Uninit(ctx)
+ bytes:=unsafe.Slice((*byte)(unsafe.Pointer(input.Addr)),256<<10)
  for i:=range bytes {bytes[i]=byte(i+7)}
  mark:=ctx.Mark()
  check:=func(){
-  Construct(ctx,output,input)
-  for i,b:=range unsafe.Slice((*byte)(unsafe.Pointer(output)),len(bytes)) {if b!=bytes[i]{t.Fatalf("constructor byte %d",i)}}
-  Mutate(ctx,output,input)
-  if bytes[0]!=7 || *(*byte)(unsafe.Pointer(output))!=99 {t.Fatal("by-value source changed")}
-  for i:=1;i<len(bytes);i++ {if *(*byte)(unsafe.Pointer(output+uintptr(i)))!=bytes[i]{t.Fatalf("return byte %d",i)}}
+  output:=Construct(ctx,input)
+  for i,b:=range unsafe.Slice((*byte)(unsafe.Pointer(output.Addr)),len(bytes)) {if b!=bytes[i]{t.Fatalf("constructor byte %d",i)}}
+  output=Mutate(ctx,input)
+  if bytes[0]!=7 || *(*byte)(unsafe.Pointer(output.Addr))!=99 {t.Fatal("by-value source changed")}
+  for i:=1;i<len(bytes);i++ {if *(*byte)(unsafe.Pointer(output.Addr+uintptr(i)))!=bytes[i]{t.Fatalf("return byte %d",i)}}
+  ctx.Restore(mark)
   if ctx.Mark()!=mark {t.Fatal("frame leaked")}
  }
  check()
  requireNoGoAllocations(t,100,check)
- Mutate(ctx,input,input)
+ input.Init(Mutate(ctx,input));ctx.Restore(mark)
  if bytes[0]!=99 || ctx.Mark()!=mark {t.Fatal("aliased result storage")}
 }
 `),

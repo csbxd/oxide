@@ -18,6 +18,15 @@ type Result<T> = std::result::Result<T, String>;
 
 pub fn program(tcx: TyCtxt<'_>, output: &Path) -> Result<()> {
     let mut export = Exporter::new(tcx);
+    // A translated library is hosted by Go, so expose Rust's actual normal-exit
+    // path (including rt::cleanup) independently of user-visible crate roots.
+    let process_exit_symbol = tcx
+        .get_diagnostic_item(rustc_span::Symbol::intern("process_exit"))
+        .map(|def| {
+            export.enqueue(rustc_internal::stable(rustc_middle::ty::Instance::mono(
+                tcx, def,
+            )))
+        });
     let filter = std::env::var("OXIDE_ROOTS").unwrap_or_default();
     let discovered = crate::roots::discover(tcx, &filter)?;
     let mut roots = Vec::new();
@@ -26,7 +35,13 @@ pub fn program(tcx: TyCtxt<'_>, output: &Path) -> Result<()> {
         export.root_symbols.insert(symbol.clone());
         roots.push(json!({"name": name, "symbol": symbol}));
     }
-    if roots.is_empty() {
+    let mut public_types = Vec::new();
+    for (name, ty) in discovered.public_types {
+        export.api_type(ty)?;
+        public_types.push(json!({"name":name,"type":ty}));
+    }
+    public_types.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    if roots.is_empty() && public_types.is_empty() {
         return Err(format!("no monomorphic export roots (filter {filter:?})"));
     }
     while let Some(instance) = export.pending.pop_front() {
@@ -45,10 +60,27 @@ pub fn program(tcx: TyCtxt<'_>, output: &Path) -> Result<()> {
         if let Some(symbol) = export.reified_functions.get(&ty["id"].as_u64().unwrap()) {
             ty["function"] = json!(symbol);
         }
+        if let Some(metadata) = export.api_metadata.get(&ty["id"].as_u64().unwrap()) {
+            ty.as_object_mut()
+                .unwrap()
+                .extend(metadata.as_object().unwrap().clone());
+        }
     }
+    let mut api_types: Vec<_> = export
+        .types
+        .iter()
+        .filter(|ty| {
+            export
+                .api_metadata
+                .contains_key(&ty["id"].as_u64().unwrap())
+        })
+        .cloned()
+        .collect();
+    api_types.sort_by_key(|ty| ty["id"].as_u64());
     let mut data = json!({
         "compiler": "nightly-2026-09-15 (574ff7d98)",
         "target": tcx.sess.opts.target_triple.to_string(),
+        "process_exit_symbol": process_exit_symbol,
         "panic_strategy": format!("{:?}", tcx.sess.panic_strategy()),
         "runtime_checks": {
             "UbChecks": tcx.sess.ub_checks(),
@@ -62,6 +94,8 @@ pub fn program(tcx: TyCtxt<'_>, output: &Path) -> Result<()> {
     // Move the existing graph so writing it does not double its live storage.
     data["roots"] = Value::Array(roots);
     data["public_api"] = Value::Array(discovered.public_api);
+    data["public_types"] = Value::Array(public_types);
+    data["api_types"] = Value::Array(api_types);
     export
         .public_drop_types
         .sort_by_key(|entry| entry["type"].as_u64());
@@ -83,8 +117,10 @@ pub fn program(tcx: TyCtxt<'_>, output: &Path) -> Result<()> {
     // Keep the public API audit inexpensive even for a multi-gigabyte MIR graph.
     // These values come from the same completed export, not a second discovery pass.
     let api = json!({"compiler": data["compiler"], "target": data["target"],
+        "process_exit_symbol": data["process_exit_symbol"],
         "roots": data["roots"], "public_api": data["public_api"],
-        "public_drop_types": data["public_drop_types"]});
+        "public_drop_types": data["public_drop_types"],
+        "public_types": data["public_types"], "api_types": data["api_types"]});
     let file =
         std::fs::File::create(output.with_extension("api.json")).map_err(|e| e.to_string())?;
     let mut writer = std::io::BufWriter::new(file);
@@ -101,6 +137,8 @@ struct Exporter<'tcx> {
     root_signatures: std::collections::HashMap<String, (Vec<Ty>, Ty)>,
     public_drop_types: Vec<Value>,
     seen_public_drop_types: HashSet<Ty>,
+    seen_api_types: HashSet<Ty>,
+    api_metadata: std::collections::HashMap<u64, Value>,
     reified_functions: std::collections::HashMap<u64, String>,
     linked_functions: Option<std::collections::HashMap<String, Instance>>,
     seen_types: HashSet<Ty>,
@@ -126,6 +164,8 @@ impl<'tcx> Exporter<'tcx> {
             root_signatures: std::collections::HashMap::new(),
             public_drop_types: vec![],
             seen_public_drop_types: HashSet::new(),
+            seen_api_types: HashSet::new(),
+            api_metadata: std::collections::HashMap::new(),
             reified_functions: std::collections::HashMap::new(),
             linked_functions: None,
             seen_types: HashSet::new(),
@@ -154,6 +194,7 @@ impl<'tcx> Exporter<'tcx> {
     }
 
     fn public_drop_type(&mut self, ty: Ty) -> Result<()> {
+        let ty = crate::type_api::canonical(self.tcx, ty);
         let internal = rustc_internal::internal(self.tcx, ty);
         if !internal.needs_drop(self.tcx, rustc_middle::ty::TypingEnv::fully_monomorphized())
             || !self.seen_public_drop_types.insert(ty)
@@ -170,6 +211,58 @@ impl<'tcx> Exporter<'tcx> {
         );
         self.public_drop_types
             .push(json!({"type": ty, "name": name, "symbol": symbol}));
+        Ok(())
+    }
+
+    fn api_type(&mut self, ty: Ty) -> Result<()> {
+        if !self.seen_api_types.insert(ty) {
+            return Ok(());
+        }
+        self.ty(ty)?;
+        let mut description = crate::type_api::describe(self.tcx, ty)?;
+        let canonical = crate::type_api::canonical(self.tcx, ty);
+        if description.metadata["needs_drop"] == true
+            && ty
+                .layout()
+                .map_err(|error| error.to_string())?
+                .shape()
+                .is_sized()
+        {
+            self.public_drop_type(canonical)?;
+            description.metadata["drop_symbol"] =
+                json!(self.enqueue(Instance::resolve_drop_in_place(canonical)));
+        }
+        for (field, instance, _) in description.operations {
+            description.metadata[field] = json!(self.enqueue(instance));
+        }
+        if let Some(mut debug) = description.debug {
+            for ty in debug.layouts {
+                self.ty(ty)?;
+            }
+            for (field, instance) in debug.instances {
+                debug.metadata[field] = json!(self.enqueue(instance));
+            }
+            description.metadata["debug"] = debug.metadata;
+        }
+        for (field, mut iteration) in description.iterations {
+            for (name, instance) in iteration.instances {
+                iteration.metadata[name] = json!(self.enqueue(instance));
+            }
+            description.metadata[field] = iteration.metadata;
+        }
+        if let Some(mut json) = description.json {
+            for (name, instance) in json.instances {
+                json.metadata[name] = json!(self.enqueue(instance));
+            }
+            description.metadata["json"] = json.metadata;
+        }
+        self.api_metadata.insert(
+            serde_json::to_value(ty).unwrap().as_u64().unwrap(),
+            description.metadata,
+        );
+        for child in description.children {
+            self.api_type(child)?;
+        }
         Ok(())
     }
 
@@ -226,7 +319,7 @@ impl<'tcx> Exporter<'tcx> {
                 }
                 let result = body.ret_local().ty;
                 for &ty in params.iter().chain(std::iter::once(&result)) {
-                    self.public_drop_type(ty)?;
+                    self.api_type(ty)?;
                 }
                 self.root_signatures
                     .insert(symbol.clone(), (params, result));
@@ -370,9 +463,9 @@ impl<'tcx> Exporter<'tcx> {
                 let count = abi.args.len() - usize::from(instance.requires_caller_location());
                 let args = &abi.args[..count];
                 if self.root_symbols.contains(&symbol) {
-                    self.public_drop_type(abi.ret.ty)?;
+                    self.api_type(abi.ret.ty)?;
                     for arg in args {
-                        self.public_drop_type(arg.ty)?;
+                        self.api_type(arg.ty)?;
                     }
                     self.root_signatures.insert(
                         symbol.clone(),

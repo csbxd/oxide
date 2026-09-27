@@ -140,6 +140,14 @@ func (g *generator) emitRoots() {
 	names := make([]string, len(roots))
 	used := map[string]string{}
 	typeNames := map[string]bool{}
+	reserved := map[string]bool{"RustType": true, "RustExit": true}
+	for _, t := range g.p.PublicTypes {
+		n, err := ExportName(t.Name)
+		if err != nil {
+			g.fail("%s", err)
+		}
+		reserved["Type"+n] = true
+	}
 	for _, t := range g.types {
 		if t.Sized && g.scalar(t) == "" {
 			typeNames[fmt.Sprintf("T%d", t.ID)] = true
@@ -156,7 +164,15 @@ func (g *generator) emitRoots() {
 		if typeNames[name] {
 			g.fail("public root %q exports %q, which is a generated Rust layout type", r.Name, name)
 		}
+		if reserved[name] || reserved[name+"Types"] {
+			g.fail("public root %q collides with generated type API %s", r.Name, name)
+		}
 		used[name], names[i] = r.Name, name
+	}
+	for _, name := range names {
+		if previous, ok := used[name+"Types"]; ok {
+			g.fail("public root %q collides with signature metadata %sTypes", previous, name)
+		}
 	}
 	for i, r := range roots {
 		f := g.functions[r.Symbol]
@@ -165,45 +181,41 @@ func (g *generator) emitRoots() {
 		}
 		g.f = f
 		name := names[i]
-		params, ret := g.signature(f)
-		args := []string{"ctx"}
+		params, ret := g.publicSignature(r, f)
 		declarations := []string{"ctx *oxide.Context"}
-		if g.indirectValue(ret) {
-			declarations = append(declarations, "result uintptr")
-			args = append(args, "result")
-		}
 		for i, t := range params {
 			n := fmt.Sprintf("a%d", i)
-			declarations = append(declarations, n+" "+g.argumentType(t))
-			args = append(args, n)
+			declarations = append(declarations, n+" "+g.publicGoType(t, false))
 		}
 		if f.TrackCaller {
 			declarations = append(declarations, "caller uintptr")
-			args = append(args, "caller")
 		}
 		if f.Signature != nil && f.Signature.Variadic {
 			declarations = append(declarations, "variadic ...uintptr")
-			args = append(args, "variadic...")
 		}
+		g.line("var %sTypes = struct{Params []*oxide.Type; Result *oxide.Type}{Params:[]*oxide.Type{", name)
+		for _, id := range params {
+			g.line("%s,", g.apiTypeExpr(id))
+		}
+		g.line("},Result:%s}", g.apiTypeExpr(ret))
 		g.line("// %s translates %s.", name, r.Name)
-		if g.indirectValue(ret) {
-			g.line("// result points to %d writable bytes with Rust alignment %d.", g.typ(ret).Size, g.typ(ret).Align)
-		}
-		for i, t := range params {
-			if g.indirectValue(t) {
-				g.line("// a%d points to %d readable bytes, copied into the callee's Rust frame.", i, g.typ(t).Size)
-			}
-		}
+		g.line("// By-value Rust owners are consumed. Drop owned results before restoring ctx.")
 		if f.TrackCaller {
 			g.line("// caller points to a Rust std::panic::Location with static lifetime.")
 		}
-		g.line("func %s(%s) %s {", name, strings.Join(declarations, ","), g.returnType(ret))
-		if g.indirectValue(ret) {
-			g.line("%s(%s)", g.names[r.Symbol], strings.Join(args, ","))
-			g.line("if ctx.Failed() { panic(ctx.TakePanic()) }; return }")
-		} else {
-			g.line("r := %s(%s)", g.names[r.Symbol], strings.Join(args, ","))
-			g.line("if ctx.Failed() { panic(ctx.TakePanic()) }; return r }")
+		g.line("func %s(%s) %s {", name, strings.Join(declarations, ","), g.publicGoType(ret, true))
+		g.beginPublicFrame(ret)
+		args := []string{"ctx"}
+		for i, id := range params {
+			args = append(args, g.publicArgument(fmt.Sprintf("a%d", i), id))
 		}
+		if f.TrackCaller {
+			args = append(args, "caller")
+		}
+		if f.Signature != nil && f.Signature.Variadic {
+			args = append(args, "variadic...")
+		}
+		g.publicCall(r.Symbol, ret, args)
+		g.line("}")
 	}
 }

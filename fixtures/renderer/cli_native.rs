@@ -1,3 +1,6 @@
 fn main() {
-    std::process::exit(oxide_renderer_fixture::fixture::cli_main());
+    if let Err(error) = mermaid_rs_renderer::run() {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
 }

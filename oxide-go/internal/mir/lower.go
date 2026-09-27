@@ -907,7 +907,7 @@ func (g *generator) intrinsicCall(bb int, name string, args []json.RawMessage, d
 	case "carrying_mul_add":
 		g.carryingMulAdd(args, g.place(dst))
 		goToTarget()
-	case "simd_splat", "simd_add", "simd_sub", "simd_mul", "simd_div", "simd_shl", "simd_shr", "simd_or", "simd_and", "simd_xor", "simd_eq", "simd_ne", "simd_lt", "simd_le", "simd_gt", "simd_ge", "simd_select", "simd_reduce_all", "simd_reduce_any", "simd_reduce_max", "simd_reduce_min", "simd_reduce_or", "simd_extract", "simd_shuffle", "simd_bitmask", "simd_cast", "simd_fsqrt":
+	case "simd_splat", "simd_add", "simd_sub", "simd_mul", "simd_div", "simd_shl", "simd_shr", "simd_or", "simd_and", "simd_xor", "simd_eq", "simd_ne", "simd_lt", "simd_le", "simd_gt", "simd_ge", "simd_select", "simd_reduce_all", "simd_reduce_any", "simd_reduce_max", "simd_reduce_min", "simd_reduce_or", "simd_extract", "simd_insert", "simd_shuffle", "simd_bitmask", "simd_cast", "simd_fsqrt":
 		g.simdIntrinsic(name, args, dst)
 		goToTarget()
 	case "assume", "cold_path":

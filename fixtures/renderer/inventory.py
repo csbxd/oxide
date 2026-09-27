@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import tomllib
 
-from check_api import cli_names, is_upstream, normalize
+from check_api import cli_names
 
 HERE = Path(__file__).resolve().parent
 
@@ -247,9 +247,7 @@ def build_inventory(default_path, scene_path, api_path, cases_path, upstream, pr
             by_trait[trait_key(alias, trait)] = definition
     public = []
     for function in compiler['public_api']:
-        if not is_upstream(function):
-            continue
-        name = normalize(function['name'])
+        name = function['name']
         definition = by_alias.get(name)
         if definition is None and function['kind'] == 'trait_method':
             definition = by_trait.get(trait_key(name, function['trait_definition']))
@@ -260,7 +258,7 @@ def build_inventory(default_path, scene_path, api_path, cases_path, upstream, pr
              'generic': function['status'] == 'requires_monomorphization', 'must_export': function['status'] == 'monomorphic',
              'probes': definition['probes'] if definition else [], 'process_probes': definition['process_probes'] if definition else [],
              'probe_status': definition['probe_status'] if definition else 'inherited_default_not_individually_probed'})
-    actual = {normalize(item['name']): item for item in public}
+    actual = {item['name']: item for item in public}
     kinds = {'free': 'function', 'inherent': 'inherent_method', 'constructor': 'constructor'}
     for definition in definitions:
         if definition['kind'] in kinds:

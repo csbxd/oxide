@@ -1,6 +1,6 @@
 //go:build oxide.heaptrace && memory.counters
 
-package rendererfixture
+package rendererfixture_test
 
 import (
 	"encoding/json"
@@ -41,20 +41,20 @@ func TestRendererHeapTrace(t *testing.T) {
 	}
 	render := func() (oxide.HeapSnapshot, oxide.HeapSnapshot) {
 		ctx := oxide.NewContext()
-		input := putBytes(ctx, source)
+		input := ctx.CopyBytes(source)
 		if format == "svg" {
 			output := ctx.Alloc(uintptr(len(want)), 1)
 			frame := ctx.Mark()
-			n := Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(want)))
+			n := renderSVG(ctx, input, unsafe.Slice((*byte)(unsafe.Pointer(output)), len(want)))
 			if n != uintptr(len(want)) {
 				t.Fatalf("SVG length %d want %d", n, len(want))
 			}
 			checkFrame(t, ctx, frame)
 			compareBytes(t, "SVG", unsafe.Slice((*byte)(unsafe.Pointer(output)), len(want)), want)
 		} else {
-			output := putBytes(ctx, []byte(path))
+			output := ctx.CopyString(path)
 			frame := ctx.Mark()
-			Fixture_WritePng(ctx, input, uintptr(len(source)), output, uintptr(len(path)))
+			writePNG(ctx, input, output)
 			checkFrame(t, ctx, frame)
 			got, err := os.ReadFile(path)
 			if err != nil {

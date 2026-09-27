@@ -1,16 +1,4 @@
-//! Test observers only. Diagram parsing, layout, SVG and PNG rendering all execute
-//! mermaid-rs-renderer's Rust implementation with its default features enabled.
-
-/// A process entry adapter. Argument parsing, I/O and diagnostics stay in Rust.
-pub fn cli_main() -> i32 {
-    match mermaid_rs_renderer::run() {
-        Ok(()) => 0,
-        Err(error) => {
-            eprintln!("{error:#}");
-            1
-        }
-    }
-}
+//! Native-only observation helpers. This module is never a translation input.
 
 unsafe fn render(source: *const u8, source_len: usize) -> String {
     let source = unsafe { core::slice::from_raw_parts(source, source_len) };

@@ -69,6 +69,8 @@ func translateCommand(args []string) {
 	fs.StringVar(&cfg.Output, "out", "", "output directory")
 	fs.StringVar(&cfg.Frontend, "frontend", "", "oxide-rs rustc_public frontend")
 	fs.StringVar(&cfg.Roots, "roots", "", "comma-separated Rust API paths; empty exports public functions, re-exports and monomorphic methods")
+	fs.StringVar(&cfg.Features, "features", "", "Cargo features to enable")
+	fs.BoolVar(&cfg.NoDefaultFeatures, "no-default-features", false, "disable Cargo default features")
 	fs.StringVar(&cfg.Target, "target", "", "target triple alias: linux/amd64 or linux/arm64")
 	fs.BoolVar(&cfg.OverflowChecks, "overflow-checks", true, "preserve Rust checked integer arithmetic")
 	fs.Parse(args)

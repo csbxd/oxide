@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 
 from check_api import check_api
-from write_owned_test import write_owned_test
+from check_dependencies import check_dependencies
 
 
 def run(args, **kwargs):
@@ -34,19 +34,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage", choices=("all", "native", "export", "go"), default="all")
     parser.add_argument("--chaos", action="store_true", help="run randomized ownership/leak checks with memory.counters")
-    parser.add_argument("--cache", type=Path, default=root / ".cache" / "renderer-conformance")
+    parser.add_argument("--cache", type=Path, default=None)
     parser.add_argument("--frontend", type=Path, default=Path(os.environ.get("OXIDE_FRONTEND", root / "bin" / "oxide-rs")))
     args = parser.parse_args()
-    cache = args.cache.resolve()
-    cache.mkdir(parents=True, exist_ok=True)
     machine = platform.machine()
     if platform.system() != "Linux" or machine not in ("aarch64", "x86_64"):
         parser.error("renderer differential tests support only linux/arm64 and linux/amd64")
     arch = "arm64" if machine == "aarch64" else "amd64"
     triple = "aarch64-unknown-linux-gnu" if arch == "arm64" else "x86_64-unknown-linux-gnu"
+    cache = (args.cache or root / ".cache" / "renderer-direct" / arch).resolve()
+    cache.mkdir(parents=True, exist_ok=True)
     frontend = args.frontend.resolve()
     sysroot = Path(subprocess.check_output([str(frontend), "--print-sysroot"], text=True).strip())
     manifest = fixture / "Cargo.toml"
+    upstream = root.parent / "mermaid-rs-renderer" / "Cargo.toml"
     target = cache / "cargo-target"
     reference = cache / "reference"
     mir_path = cache / "oxide.mir.json"
@@ -61,25 +62,28 @@ def main():
         "RUSTC_WORKSPACE_WRAPPER": "",
         "RUSTC_BOOTSTRAP": "1",
         "OXIDE_EXPORT": "",
-        # Export the facade's entire public API, including dependency re-exports.
+        # Export the upstream library itself; no native oracle is a dependency.
         "OXIDE_ROOTS": "",
         "RUSTFLAGS": "",
         "CARGO_ENCODED_RUSTFLAGS": "\x1f".join(("-Zalways-encode-mir", "-Zmir-opt-level=0", "-Coverflow-checks=yes")),
         "CARGO_TARGET_DIR": str(target),
     })
     cargo_args = ["-Zbuild-std=std,panic_unwind", "--locked", "--manifest-path", manifest, "--target", triple]
+    closure = check_dependencies(sysroot / "bin" / "cargo", manifest, upstream, triple, env)
+    (cache / "dependency-closure.json").write_text(json.dumps(closure, indent=2) + "\n")
     if args.stage in ("all", "native"):
         run([sysroot / "bin" / "cargo", "build", *cargo_args, "--bin", "oxide-renderer-native"], env=env)
         run([target / triple / "debug" / "oxide-renderer-native", fixture / "cases", reference], env=env)
         run([sysroot / "bin" / "cargo", "build", *cargo_args, "--bin", "oxide-renderer-api-native", "--bin", "oxide-renderer-cli-native"], env=env)
         run([target / triple / "debug" / "oxide-renderer-api-native", reference / "api"], env=env)
         run(["python3", fixture / "test_cli.py", "--native", target / triple / "debug" / "oxide-renderer-cli-native", "--cache", cache / "cli"], env=env)
+    upstream_args = ["-Zbuild-std=std,panic_unwind", "--locked", "--manifest-path", upstream, "--package", "mermaid-rs-renderer", "--features", "scene", "--target", triple]
     if args.stage in ("all", "export"):
         # Cargo fingerprints the unique final argument, so every requested
         # export runs even when Cargo can reuse all dependency artifacts.
         with tempfile.TemporaryDirectory(prefix="export-", dir=cache) as stage:
             export = Path(stage) / "oxide.mir.json"
-            run([sysroot / "bin" / "cargo", "rustc", *cargo_args, "--lib", "--", "--oxide-export=" + str(export)], env=env)
+            run([sysroot / "bin" / "cargo", "rustc", *upstream_args, "--lib", "--", "--oxide-export=" + str(export)], env=env)
             export.replace(mir_path)
             export.with_suffix(".api.json").replace(cache / "oxide.mir.api.json")
     if args.stage in ("all", "go"):
@@ -105,21 +109,22 @@ def main():
         shutil.copyfile(fixture / "api_generated_test.go", output / "api_generated_test.go")
         shutil.copyfile(fixture / "chaos_test.go", output / "chaos_test.go")
         shutil.copyfile(fixture / "heap_trace_test.go", output / "heap_trace_test.go")
-        write_owned_test(cache / "oxide.mir.api.json", output)
+        for name in ("direct_test.go", "api_direct_test.go", "api_more_test.go", "api_construct_test.go", "owned_return_test.go"):
+            shutil.copyfile(fixture / name, output / name)
         for source, destination in ((fixture / "cases", output / "cases"), (reference, output / "reference")):
             if destination.exists():
                 shutil.rmtree(destination)
             shutil.copytree(source, destination)
-        tests = ["go", "test", "-p=1", "-mod=mod", "-count=1", "-timeout=20m", "-v"]
+        tests = ["go", "test", "-p=1", "-mod=mod", "-tags=memory.counters", "-count=1", "-timeout=20m", "-v"]
         if args.chaos:
-            tests += ["-tags=memory.counters", "-run", "^Test(RendererOwnershipChaos|PublicOwnedReturns)$"]
+            tests += ["-run", "^Test(RendererOwnershipChaos|PublicOwnedReturns)$"]
         run([*tests, "."], cwd=output, env=goenv)
         if not args.chaos:
             cli = output / "cmd" / "renderer"
             cli.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(fixture / "cli" / "main.go", cli / "main.go")
             binary = output / "renderer-cli"
-            run(["go", "build", "-p=1", "-mod=mod", "-o", binary, "./cmd/renderer"], cwd=output, env=goenv)
+            run(["go", "build", "-p=1", "-mod=mod", "-tags=memory.counters", "-o", binary, "./cmd/renderer"], cwd=output, env=goenv)
             run(["python3", fixture / "test_cli.py", "--go", binary, "--cache", cache / "cli"], env=goenv)
 
 

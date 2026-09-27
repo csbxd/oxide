@@ -5,10 +5,6 @@ package mir_test
 import (
 	"bytes"
 	"fmt"
-	"go/ast"
-	"go/format"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +18,7 @@ import (
 var ownershipKinds = []string{"string", "vector", "box", "dynamic", "aligned", "large", "result", "zero", "boxed_string", "borrowed_vector"}
 
 // The Go caller is in a separate package. It consumes public Rust return values
-// only through compiler-generated DropTn helpers, without Rust release roots.
+// through the public Value API and compiler drop glue, without Rust release roots.
 func TestRustPublicOwnershipConformance(t *testing.T) {
 	frontend, sysroot := rustFrontend(t)
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
@@ -117,35 +113,17 @@ func testPublicOwnership(t *testing.T, root, cache, arch string, p *mir.Program,
 		t.Fatalf("missing root %s", name)
 		return nil
 	}
-	if len(drops) != len(ownershipKinds)+1 {
-		t.Fatalf("public drop types = %d, want %d", len(drops), len(ownershipKinds)+1)
-	}
 	for _, name := range []string{"borrow_box", "borrow_dynamic"} {
 		f := rootFunction(name)
 		for _, local := range f.Body.Locals[:2] {
 			if _, ok := drops[local.Type]; ok {
-				t.Fatalf("non-owning %s signature incorrectly has DropT%d", name, local.Type)
+				t.Fatalf("non-owning %s signature incorrectly has a drop descriptor for type %d", name, local.Type)
 			}
 		}
 	}
 	generated, err := mir.Generate(p, "fixture")
 	if err != nil {
 		t.Fatal(err)
-	}
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "generated.go", generated, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	goReturns := map[string]string{}
-	for _, decl := range file.Decls {
-		if f, ok := decl.(*ast.FuncDecl); ok && f.Type.Results != nil && len(f.Type.Results.List) == 1 {
-			var b bytes.Buffer
-			if err := format.Node(&b, fset, f.Type.Results.List[0].Type); err != nil {
-				t.Fatal(err)
-			}
-			goReturns[f.Name.Name] = b.String()
-		}
 	}
 	var cases strings.Builder
 	for index, kind := range ownershipKinds {
@@ -157,17 +135,16 @@ func testPublicOwnership(t *testing.T, root, cache, arch string, p *mir.Program,
 		makeName, _ := mir.ExportName("oxide_public_ownership::make_" + kind)
 		inspectName, _ := mir.ExportName("oxide_public_ownership::inspect_" + kind)
 		fmt.Fprintf(&cases, "case %d:\n", index)
-		if ret := goReturns[makeName]; ret != "" {
-			if strings.HasPrefix(ret, "T") {
-				ret = "f." + ret
-			}
-			fmt.Fprintf(&cases, "v:=f.%s(ctx,seed);*(*%s)(unsafe.Pointer(slot))=v;sum=f.%s(ctx,slot);f.DropT%d(ctx,v)\n", makeName, ret, inspectName, id)
-		} else {
-			fmt.Fprintf(&cases, "f.%s(ctx,slot,seed);sum=f.%s(ctx,slot);f.DropT%d(ctx,slot)\n", makeName, inspectName, id)
+		fmt.Fprintf(&cases, "entry:=ctx.Mark();typ:=f.%sTypes.Result;ctx.Alloc(typ.Size,typ.Align);wantFrame:=ctx.Mark();ctx.Restore(entry);v:=f.%s(ctx,seed);if ctx.Mark()!=wantFrame{t.Fatal(\"public root retained extra automatic storage\")};sum=f.%s(ctx,v);\n", makeName, makeName, inspectName)
+		switch kind {
+		case "box":
+			cases.WriteString("view:=v.Deref();if view.Addr!=f.BorrowBox(ctx,v)||view.Uint()!=sum{t.Fatal(\"thin Box borrow\")};\n")
+		case "dynamic":
+			cases.WriteString("view:=v.Deref();borrowed:=f.BorrowDynamic(ctx,v);if view!=borrowed||view.Size()!=f.TypeProbe.Size||view.Align()!=f.TypeProbe.Align{t.Fatal(\"trait object borrow metadata/layout\")};\n")
+		case "boxed_string":
+			cases.WriteString("if f.InspectString(ctx,v.Deref())!=sum{t.Fatal(\"Box<String> pointee identity\")};\n")
 		}
-		if types[id].Size > (256<<10)+64 || types[id].Align > 64 {
-			t.Fatalf("test slot too small for type %d", id)
-		}
+		cases.WriteString("v.Drop(ctx);if ctx.Mark()!=wantFrame{t.Fatal(\"borrow/drop leaked automatic storage\")};ctx.Restore(entry)\n")
 		// Borrowed arguments/results are not implicit ownership transfers.
 		for _, local := range rootFunction("inspect_" + kind).Body.Locals[:2] {
 			if _, ok := drops[local.Type]; ok {
@@ -182,29 +159,36 @@ func testPublicOwnership(t *testing.T, root, cache, arch string, p *mir.Program,
 	callbackType := types[rootFunction("catch_callback").Body.Locals[1].Type]
 	unit := callbackType.FnOutput
 	harness := fmt.Sprintf(`package fixture_test
-import("fmt";"os";"strings";"testing";"unsafe";f "public-ownership-test";oxide "github.com/csbxd/oxide/oxide-go/runtime")
+	import("fmt";"os";"strings";"testing";f "public-ownership-test";oxide "github.com/csbxd/oxide/oxide-go/runtime")
 var callbackSeed uint64
 var propagatedPanics uint64
+var panicFrameErrors uint64
 func panicDrop(ctx *oxide.Context)(unit f.T%d) {
- defer func(){if value:=recover();value!=nil{propagatedPanics++;ctx.Fail(value)}}()
- value:=f.MakePanic(ctx,callbackSeed);f.DropT%d(ctx,value);return
+ mark:=ctx.Mark()
+ wantFrame:=mark
+ // A single recovering defer also restores storage. Go's recovery path
+ // allocates savedOpenDeferState if another open-coded defer remains pending.
+ defer func(){if value:=recover();value!=nil{propagatedPanics++;if ctx.Mark()!=wantFrame{panicFrameErrors++};ctx.Fail(value)};ctx.Restore(mark)}()
+ typ:=f.MakePanicTypes.Result;ctx.Alloc(typ.Size,typ.Align);wantFrame=ctx.Mark();ctx.Restore(mark)
+ value:=f.MakePanic(ctx,callbackSeed);value.Drop(ctx);return
 }
 func TestPublicOwnership(t *testing.T) {
  expected,err:=os.ReadFile("expected.stdout");if err!=nil{t.Fatal(err)}
  beforeContext:=oxide.HeapStats().LiveAllocations
  ctx:=oxide.NewContext();defer ctx.Close();f.Init(ctx)
- slot:=ctx.Alloc((256<<10)+64,64);mark:=ctx.Mark()
+ mark:=ctx.Mark()
  // Initialize Rust's thread panic state before taking the ownership baseline.
- callbackSeed=0;if !f.CatchCallback(ctx,oxide.FunctionPointer(panicDrop),0){t.Fatal("panic warm-up")}
+ callbackSeed=0;if !f.CatchCallback(ctx,oxide.FunctionPointer(panicDrop),0)||panicFrameErrors!=0{t.Fatal("panic warm-up/frame")}
  baseline:=oxide.HeapStats().LiveAllocations
  for _,line:=range strings.Split(strings.TrimSpace(string(expected)),"\n") {
   var caseID,seed,want uint64;if _,err:=fmt.Sscanf(line,"%%d %%d %%d",&caseID,&seed,&want);err!=nil{t.Fatal(err)}
   t.Run(fmt.Sprintf("case_%%d/seed_%%d",caseID,seed),func(t *testing.T){
    requireNoGoAllocations(t,100,func(){
+    defer ctx.Restore(mark)
     f.Reset(ctx);sum:=uint64(0)
     switch caseID {
      %s
-     case 10:callbackSeed=seed;panics:=propagatedPanics;if f.CatchCallback(ctx,oxide.FunctionPointer(panicDrop),seed){sum=1};if propagatedPanics!=panics+1{t.Fatal("drop panic did not cross the Go API boundary")}
+     case 10:callbackSeed=seed;panics:=propagatedPanics;if f.CatchCallback(ctx,oxide.FunctionPointer(panicDrop),seed){sum=1};if propagatedPanics!=panics+1||panicFrameErrors!=0{t.Fatal("drop panic lost propagation or automatic storage")}
      default:t.Fatal("unknown case")
     }
     got:=sum+f.DropState(ctx)
@@ -217,7 +201,7 @@ func TestPublicOwnership(t *testing.T) {
  if err:=ctx.Close();err!=nil{t.Fatal(err)}
  if live:=oxide.HeapStats().LiveAllocations;live!=beforeContext{t.Fatalf("after Context.Close: live=%%d baseline=%%d",live,beforeContext)}
 }
-`, unit, panicType, cases.String())
+`, unit, cases.String())
 	dir := filepath.Join(cache, "go-"+arch)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)

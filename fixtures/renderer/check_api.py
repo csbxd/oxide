@@ -27,15 +27,6 @@ def cli_names(path):
     raise AssertionError("CLI CASES declaration missing")
 
 
-def normalize(name):
-    return name.replace("oxide_renderer_fixture::", "mermaid_rs_renderer::")
-
-
-def is_upstream(item):
-    observers = {"api::run", "fixture::cli_main", "fixture::render_svg", "fixture::write_png"}
-    return item["kind"] != "function" or item["definition"] not in observers
-
-
 def unique(items, key, description):
     result = {}
     for item in items:
@@ -66,17 +57,14 @@ def check_api(api_path, cases_path, inventory_path=None, cli_results_path=None):
 
     items = unique(actual["public_api"], "name", "compiler public path")
     roots = unique(actual["roots"], "name", "root path")
-    upstream = {
-        name for name, item in items.items()
-        if is_upstream(item)
-    }
+    upstream = set(items)
     expected_paths = {item["name"] for item in inventory["public_api"]}
     assert upstream == expected_paths, (
         "upstream API inventory changed",
         {"missing": sorted(expected_paths - upstream), "unexpected": sorted(upstream - expected_paths)},
     )
     selected = generic = 0
-    # This also checks extra fixture roots beyond the audited upstream surface.
+    # Every selected root belongs to the upstream library; no oracle roots.
     for name, item in items.items():
         if item["status"] == "monomorphic":
             assert item["selected"] is True, f"monomorphic API not selected: {name}"
@@ -96,7 +84,7 @@ def check_api(api_path, cases_path, inventory_path=None, cli_results_path=None):
         if "trait_definition" in expected:
             assert item.get("trait_definition") == expected["trait_definition"], f"canonical trait changed: {name}"
 
-    paths = {normalize(name): item for name, item in items.items()}
+    paths = items
     kinds = {"free": "function", "inherent": "inherent_method", "constructor": "constructor"}
     for definition in inventory["functions"]:
         assert set(definition["probes"]) <= set(case_map), f"unknown probe for {definition['id']}"

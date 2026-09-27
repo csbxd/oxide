@@ -18,6 +18,8 @@ import (
 // never random bytes, OS thread IDs, pointer values, or temporary filenames.
 func TestRustLibcConformance(t *testing.T) {
 	frontend, sysroot := rustFrontend(t)
+	t.Setenv("GOMEMLIMIT", "3GiB")
+	t.Setenv("GOMAXPROCS", "2")
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -35,31 +37,44 @@ func TestRustLibcConformance(t *testing.T) {
 		"CARGO_ENCODED_RUSTFLAGS="+strings.Join(flags, "\x1f"), "CARGO_TARGET_DIR="+target)
 	cargo := filepath.Join(sysroot, "bin", "cargo")
 	triple := targetTriple(runtime.GOARCH)
-	common := []string{"-Zbuild-std=std,panic_unwind", "--locked", "--manifest-path", manifest, "--target", triple}
-	build := exec.Command(cargo, append(append([]string{"build"}, common...), "--bin", "oxide-libc-native")...)
+	common := []string{"-Zbuild-std=std,panic_unwind", "--locked", "--manifest-path", manifest}
+	build := exec.Command(cargo, append(append([]string{"build"}, common...), "--target", triple, "--bin", "oxide-libc-native")...)
 	build.Env = env
 	run(t, build)
 	native := exec.Command(filepath.Join(target, triple, "debug", "oxide-libc-native"))
+	nativeDir, err := os.MkdirTemp(cache, "native-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(nativeDir)
+	native.Dir = nativeDir
 	expected := run(t, native)
 	if err := os.WriteFile(filepath.Join(cache, "expected.stdout"), expected, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stage, err := os.MkdirTemp(cache, "export-")
-	if err != nil {
-		t.Fatal(err)
+	for _, arch := range []string{"amd64", "arm64"} {
+		t.Run(arch, func(t *testing.T) {
+			stage, err := os.MkdirTemp(cache, "export-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(stage)
+			output := filepath.Join(stage, "oxide.mir.json")
+			export := exec.Command(cargo, append(append([]string{"rustc"}, common...), "--target", targetTriple(arch), "--lib", "--", "--oxide-export="+output)...)
+			export.Env = env
+			run(t, export)
+			saved := filepath.Join(cache, arch+".json")
+			if err := os.Rename(output, saved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(strings.TrimSuffix(output, ".json")+".api.json", filepath.Join(cache, arch+".api.json")); err != nil {
+				t.Fatal(err)
+			}
+			p, err := mir.Load(saved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			testGeneratedWithHarness(t, p, expected, arch, "libc_generated_test.go")
+		})
 	}
-	defer os.RemoveAll(stage)
-	output := filepath.Join(stage, "oxide.mir.json")
-	export := exec.Command(cargo, append(append([]string{"rustc"}, common...), "--lib", "--", "--oxide-export="+output)...)
-	export.Env = env
-	run(t, export)
-	saved := filepath.Join(cache, "oxide.mir.json")
-	if err := os.Rename(output, saved); err != nil {
-		t.Fatal(err)
-	}
-	p, err := mir.Load(saved)
-	if err != nil {
-		t.Fatal(err)
-	}
-	testGeneratedWithHarness(t, p, expected, runtime.GOARCH, "libc_generated_test.go")
 }

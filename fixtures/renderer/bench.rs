@@ -1,7 +1,8 @@
 //! Native comparison for generated_test.go's warmed SVG/PNG benchmarks.
 //! Arguments: cases directory, native reference directory, output directory.
 
-use oxide_renderer_fixture::fixture::{render_svg, write_png};
+mod fixture;
+use fixture::{render_svg, write_png};
 use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;

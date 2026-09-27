@@ -56,7 +56,9 @@ fn stat() -> u64 {
 
 fn file() -> u64 {
     const CONTENT: &[u8] = b"oxide Rust extern C fixture\n";
-    let mut path = *b"/tmp/oxide-libc-XXXXXX\0";
+    // The harness supplies a private writable working directory. A fixed /tmp
+    // would make this C ABI test depend on an unrelated filesystem's capacity.
+    let mut path = *b"oxide-libc-XXXXXX\0";
     let initial = unsafe { libc::mkstemp(path.as_mut_ptr().cast()) };
     if initial < 0 {
         return 0;

@@ -76,6 +76,14 @@ func TestRootExportCollisionDiagnostics(t *testing.T) {
 	if _, err := Generate(p, "fixture"); err == nil || !strings.Contains(err.Error(), "generated Rust layout type") {
 		t.Fatalf("type collision: %v", err)
 	}
+	for _, name := range []string{"demo::rust_type", "demo::rust_exit", "demo::type_foo"} {
+		p := rootTestProgram()
+		p.PublicTypes = []PublicType{{Name: "demo::Foo", Type: 1}}
+		p.Roots = []Root{{Name: name, Symbol: "identity"}}
+		if _, err := Generate(p, "fixture"); err == nil || !strings.Contains(err.Error(), "generated type API") {
+			t.Fatalf("type API collision %s: %v", name, err)
+		}
+	}
 }
 
 func TestPublicRootCalls(t *testing.T) {

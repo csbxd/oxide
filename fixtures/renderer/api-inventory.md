@@ -2,13 +2,18 @@
 
 This inventory covers `mermaid-rs-renderer` 0.3.1 at upstream commit
 `3726ccbffe0e8032361eb9668694b24f77858060`, with its default `cli` and `png`
-features retained and `scene` enabled. The fixture re-exports the library's
-public namespace; the test ABI does not replace renderer implementations.
+features retained and `scene` enabled. Translation targets the upstream library
+and its dependencies directly. No fixture library or Rust observer supplies
+the translated public API or seeds its generic instances.
 
 [api-inventory.json](api-inventory.json) is the complete machine-readable
 inventory, including every public alias, signature, generic parameter,
 source location, trait identity, feature, and probe assignment.
-[api.rs](api.rs) implements the probes in Rust.
+[api.rs](api.rs) supplies only the native Rust reference observations.
+The external Go tests call generated upstream roots and operate on Rust values
+through compiler-derived type descriptors, including fields, enum payloads,
+containers and real Rust destructors. Formatting, iteration and serde operations
+also call compiler-resolved Rust implementations.
 [check_api.py](check_api.py) checks export coverage without loading the large
 MIR body file.
 
@@ -46,8 +51,8 @@ The compiler inventory has **1,089 upstream callable paths**: 39 free-function,
 47 inherent-method, 18 constructor and 985 trait-method paths. The trait count
 includes aliases and provided defaults, so it is not the rustdoc count of local
 method definitions. Of these paths, 973 are monomorphic and 116 require concrete
-type/const arguments. The fixture adds four test ABI functions, yielding 977
-selected monomorphic roots and 1,093 inventory paths in the complete export.
+type/const arguments. The complete export therefore has 973 selected
+monomorphic roots and 1,089 inventory paths, all belonging to the upstream API.
 Lifetimes alone do not prevent monomorphization. No handwritten free or inherent
 method here requires a type/const argument; 55 local derive-generated method
 definitions do. Blanket impls and synthetic auto-trait impls are not counted as
@@ -194,14 +199,13 @@ used by the probes remain outside this differential test matrix.
 ## Differential oracles
 
 The 74 Rust cases accept an input string and a caller-owned temporary path.
-`api::run` returns the full byte length and only copies bytes when capacity is
-sufficient. Native acceptance executes each case once for its length and twice
-for its complete bytes, rejecting nondeterminism. The generated Go harness
-passes the same bytes and case index to the translated Rust observer, compares
-the full result, checks output guard bytes and Context frame restoration, and
-checks raw Go `Mallocs` and `TotalAlloc` deltas on three warmed calls. It does
-not implement parser, layout, rendering, config, constructors or serialization
-in Go.
+The native-only `api::run` observer returns the full byte length and only copies
+bytes when capacity is sufficient. Native acceptance executes each case once
+for its length and twice for its complete bytes, rejecting nondeterminism.
+Go independently composes the same operations from public library roots and
+compares the full result; it does not call a translated `api::run` or other
+fixture wrapper. Parser, layout, rendering and serialization remain actual
+translated Rust implementations.
 
 | Observable boundary | Oracle |
 | --- | --- |
@@ -209,7 +213,7 @@ in Go.
 | Rendering and scene | Complete SVG bytes; scene's complete Rust `Debug` representation includes all commands, paths and paints. PNG writers return their actual file bytes. |
 | File operations | Each call initializes its own path state, reads the complete created file on success, and returns the error on failure. Only the caller-specific path is replaced with `<path>`. Directory-as-file and missing-file cases are intentional. |
 | Timing | Actually calls both timed rendering APIs and layout-with-metrics. Checks exact sums and total-millisecond relationships; compares the resulting SVG and deterministic layout data. Measured durations cannot match across independent executions and are not compared as bytes. `timing_methods` separately tests supplied integer inputs, including values wider than `u64`. |
-| Constructors | Calls each tuple constructor through a typed Rust function pointer, then clones and checks the reconstructed value. Diagram payloads come from real Rust parsing/layout; no Go construction substitutes are used. |
+| Constructors | Native Rust calls tuple constructors through typed function pointers; Go calls their generated public roots. Both clone and check the reconstructed value. Diagram payloads come from actual Rust parsing/layout; scalar payload inputs are built in Go using compiler-derived fields and enum descriptors. |
 | CLI | Original Rust `cli::run` executes in a separate process per case. Compare exit status, complete stdout, complete stderr and every file. Real timing stderr is retained and checked against its numeric schema and exact sums before comparison of its contract result. |
 
 The CLI cases are: `help`, `version`, `unknown-flag`, `bad-ratio`, `empty-input`,
@@ -220,17 +224,29 @@ The two stdout SVG cases exercise `write_output_svg` with no output path.
 The markdown cases cover multiple diagrams, file naming and size-only output.
 The CLI executable is given a fixed argv[0] so its usage text is comparable.
 
+The Go acceptance package uses `memory.counters`. After a fixed warm call for
+each API case, every measured invocation checks raw Go allocation object/byte
+totals, Context restoration and three independent ownership records: live Rust
+heap allocations, the full libc allocator snapshot, and file-backed mapping
+bytes grouped by device/inode. Rust operations and their Drop calls remain
+inside the allocation window. Input preparation and Go-side file comparison
+are outside it. Successful writer outputs are removed after comparison so a
+later invocation cannot pass by leaving a previous file untouched. These checks
+do not imply coverage of every anonymous mapping or every possible API input.
+
 ## Reproduction and coverage gate
 
-From the `oxide` directory, after building the pinned frontend:
+From the `oxide` directory, after building the pinned frontend, use the cache
+for the machine running the native references (`arm64` below; use `amd64` on an
+amd64 machine). `test.py` chooses that host architecture automatically:
 
 ```sh
 python3 fixtures/renderer/test.py --stage native
 python3 fixtures/renderer/test.py --stage export
 python3 fixtures/renderer/check_api.py \
-  .cache/renderer-conformance/oxide.mir.api.json \
-  --cases .cache/renderer-conformance/reference/api/cases.json \
-  --cli-results .cache/renderer-conformance/cli/native/results.json
+  .cache/renderer-direct/arm64/oxide.mir.api.json \
+  --cases .cache/renderer-direct/arm64/reference/api/cases.json \
+  --cli-results .cache/renderer-direct/arm64/cli/native/results.json
 python3 fixtures/renderer/test.py --stage go
 ```
 
@@ -241,6 +257,13 @@ pinned compiler, `-Zbuild-std=std,panic_unwind`, `-Zalways-encode-mir`,
 separately on Linux arm64 and amd64 to obtain references on the same target as
 the translated executable. This supplements the existing 72-source SVG/PNG
 matrix rather than replacing it.
+
+[check_dependencies.py](check_dependencies.py) compares Cargo's resolved
+upstream dependency closure in the native oracle build and in the direct
+library build. The current closure has 96 packages; package versions, enabled
+features and dependency edges must match. The gate runs before the stages and
+writes `dependency-closure.json` into the architecture's direct cache. Native
+oracle source is not part of the translated dependency closure.
 
 The coverage checker imports as
 `check_api.check_api(sidecar, native_cases, cli_results_path=cli_results)`.
@@ -307,8 +330,8 @@ with `test.py --stage native` and `test.py --stage export`, rebuild the inventor
 python3 fixtures/renderer/inventory.py \
   --default .cache/renderer-api/default.json \
   --scene .cache/renderer-api/scene.json \
-  --api .cache/renderer-conformance/oxide.mir.api.json \
-  --cases .cache/renderer-conformance/reference/api/cases.json
+  --api .cache/renderer-direct/arm64/oxide.mir.api.json \
+  --cases .cache/renderer-direct/arm64/reference/api/cases.json
 ```
 
 Use `--check` to require exact equality with the existing JSON without writing
@@ -325,7 +348,7 @@ untested:
 
 ```sh
 python3 fixtures/renderer/test_check_api.py \
-  --api .cache/renderer-conformance/oxide.mir.api.json \
-  --cases .cache/renderer-conformance/reference/api/cases.json \
-  --cli-results .cache/renderer-conformance/cli/native/results.json
+  --api .cache/renderer-direct/arm64/oxide.mir.api.json \
+  --cases .cache/renderer-direct/arm64/reference/api/cases.json \
+  --cli-results .cache/renderer-direct/arm64/cli/native/results.json
 ```

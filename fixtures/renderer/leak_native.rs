@@ -1,4 +1,5 @@
 //! Native allocation-owner control for the translated renderer chaos test.
+mod fixture;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering::Relaxed};
@@ -63,7 +64,7 @@ fn main() {
         for (name, input, svg, png) in &samples {
             let before = LIVE.load(Relaxed);
             let mut render = || unsafe {
-                oxide_renderer_fixture::fixture::render_svg(
+                fixture::render_svg(
                     input.as_ptr(),
                     input.len(),
                     buffer.as_mut_ptr(),
@@ -80,7 +81,7 @@ fn main() {
             println!("{round},svg,{name},{before},{after},{}", after - before);
             let before = LIVE.load(Relaxed);
             let render = || unsafe {
-                oxide_renderer_fixture::fixture::write_png(
+                fixture::write_png(
                     input.as_ptr(),
                     input.len(),
                     path.as_ptr(),

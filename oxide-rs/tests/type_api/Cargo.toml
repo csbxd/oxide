@@ -1,0 +1,10 @@
+[package]
+name = "oxide_type_api"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+path = "../type_api.rs"
+
+[workspace]

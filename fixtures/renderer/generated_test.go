@@ -1,4 +1,4 @@
-package rendererfixture
+package rendererfixture_test
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 	oxide "github.com/csbxd/oxide/oxide-go/runtime"
 )
 
-// This file only invokes the translated scalar test ABI and compares bytes.
+// This file calls original library roots through compiler-described Rust values.
 // All rendering and PNG encoding are performed by generated Rust code.
 func TestRendererExactGoHeap(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
@@ -31,8 +31,9 @@ func TestRendererExactGoHeap(t *testing.T) {
 				}
 				ctx := oxide.NewContext()
 				defer ctx.Close()
-				input := putBytes(ctx, source)
-				var output, pathPointer uintptr
+				input := ctx.CopyBytes(source)
+				var output uintptr
+				var pathPointer oxide.Span
 				var storage []byte
 				var path string
 				if format == "svg" {
@@ -40,14 +41,14 @@ func TestRendererExactGoHeap(t *testing.T) {
 					storage = unsafe.Slice((*byte)(unsafe.Pointer(output)), len(want))
 				} else {
 					path = filepath.Join(t.TempDir(), name+".png")
-					pathPointer = putBytes(ctx, []byte(path))
+					pathPointer = ctx.CopyString(path)
 				}
 				frame := ctx.Mark()
 				invoke := func() uintptr {
 					if format == "svg" {
-						return Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage)))
+						return renderSVG(ctx, input, storage)
 					}
-					Fixture_WritePng(ctx, input, uintptr(len(source)), pathPointer, uintptr(len(path)))
+					writePNG(ctx, input, pathPointer)
 					return uintptr(len(want))
 				}
 				check := func(size uintptr) {
@@ -113,7 +114,7 @@ func TestRendererMatchesNativeRust(t *testing.T) {
 			}
 			mark := ctx.Mark()
 			defer ctx.Restore(mark)
-			input := putBytes(ctx, source)
+			input := ctx.CopyBytes(source)
 			inputFrame := ctx.Mark()
 			want, err := os.ReadFile(filepath.Join("reference", name+".svg"))
 			if err != nil {
@@ -125,7 +126,7 @@ func TestRendererMatchesNativeRust(t *testing.T) {
 			for i := range storage {
 				storage[i] = 0xa5
 			}
-			size := Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage)))
+			size := renderSVG(ctx, input, storage)
 			checkFrame(t, ctx, frame)
 			if size != uintptr(len(want)) {
 				t.Fatalf("SVG length: translated %d, native Rust %d", size, len(want))
@@ -147,9 +148,9 @@ func TestRendererMatchesNativeRust(t *testing.T) {
 			if err := os.Remove(outputPNG); err != nil && !os.IsNotExist(err) {
 				t.Fatal(err)
 			}
-			path := putBytes(ctx, []byte(outputPNG))
+			path := ctx.CopyString(outputPNG)
 			frame = ctx.Mark()
-			Fixture_WritePng(ctx, input, uintptr(len(source)), path, uintptr(len(outputPNG)))
+			writePNG(ctx, input, path)
 			checkFrame(t, ctx, frame)
 			ctx.Restore(inputFrame)
 			got, err := os.ReadFile(outputPNG)
@@ -179,11 +180,11 @@ func BenchmarkRendererSVG(b *testing.B) {
 			}
 			ctx := oxide.NewContext()
 			defer ctx.Close()
-			input := putBytes(ctx, source)
+			input := ctx.CopyBytes(source)
 			output := ctx.Alloc(uintptr(len(want)), 1)
 			storage := unsafe.Slice((*byte)(unsafe.Pointer(output)), len(want))
 			frame := ctx.Mark()
-			if size := Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage))); size != uintptr(len(want)) {
+			if size := renderSVG(ctx, input, storage); size != uintptr(len(want)) {
 				b.Fatalf("SVG length: translated %d, native Rust %d", size, len(want))
 			}
 			checkFrame(b, ctx, frame)
@@ -195,7 +196,7 @@ func BenchmarkRendererSVG(b *testing.B) {
 			runtime.ReadMemStats(&before)
 			b.StartTimer()
 			for i := 0; i < b.N; i++ {
-				if size := Fixture_RenderSvg(ctx, input, uintptr(len(source)), output, uintptr(len(storage))); size != uintptr(len(want)) {
+				if size := renderSVG(ctx, input, storage); size != uintptr(len(want)) {
 					b.Fatalf("SVG length: translated %d, native Rust %d", size, len(want))
 				}
 				checkFrame(b, ctx, frame)
@@ -224,10 +225,10 @@ func BenchmarkRendererPNG(b *testing.B) {
 			output := filepath.Join(b.TempDir(), name+".png")
 			ctx := oxide.NewContext()
 			defer ctx.Close()
-			input := putBytes(ctx, source)
-			path := putBytes(ctx, []byte(output))
+			input := ctx.CopyBytes(source)
+			path := ctx.CopyString(output)
 			frame := ctx.Mark()
-			Fixture_WritePng(ctx, input, uintptr(len(source)), path, uintptr(len(output)))
+			writePNG(ctx, input, path)
 			checkFrame(b, ctx, frame)
 			got, err := os.ReadFile(output)
 			if err != nil {
@@ -241,7 +242,7 @@ func BenchmarkRendererPNG(b *testing.B) {
 			runtime.ReadMemStats(&before)
 			b.StartTimer()
 			for i := 0; i < b.N; i++ {
-				Fixture_WritePng(ctx, input, uintptr(len(source)), path, uintptr(len(output)))
+				writePNG(ctx, input, path)
 				checkFrame(b, ctx, frame)
 			}
 			b.StopTimer()
@@ -261,12 +262,6 @@ func reportExactAllocations(b *testing.B, before, after runtime.MemStats) {
 	// Totals retain even a single allocation across a long benchmark run.
 	b.ReportMetric(float64(after.Mallocs-before.Mallocs), "Go-allocs-total")
 	b.ReportMetric(float64(after.TotalAlloc-before.TotalAlloc), "Go-bytes-total")
-}
-
-func putBytes(ctx *oxide.Context, data []byte) uintptr {
-	pointer := ctx.Alloc(uintptr(len(data)), 1)
-	copy(unsafe.Slice((*byte)(unsafe.Pointer(pointer)), len(data)), data)
-	return pointer
 }
 
 func checkFrame(t testing.TB, ctx *oxide.Context, mark oxide.Mark) {

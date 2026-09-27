@@ -164,6 +164,25 @@ func (g *generator) simdIntrinsic(name string, args []json.RawMessage, dst Place
 		}
 		g.line("%s=%s", d.read(), lane(a, ae, fmt.Sprint(i)))
 		return
+	case "simd_insert":
+		arity(3)
+		index, ok := constantBytes(args[1])
+		if !ok || len(index) != 4 {
+			g.fail("simd_insert constant index")
+		}
+		i := binary.LittleEndian.Uint32(index)
+		de, dn := g.vectorInfo(d.typ)
+		if ae != de || an != dn || uint64(i) >= uint64(an) {
+			g.fail("simd_insert lane/layout %d", i)
+		}
+		// Snapshot the scalar too: it may refer to the destination vector.
+		value := operand(args[2])
+		if value.typ != ae {
+			g.fail("simd_insert element type")
+		}
+		g.storeValue(d, a.value())
+		g.line("%s=%s", lane(d, de, fmt.Sprint(i)), value.read())
+		return
 	case "simd_bitmask":
 		arity(1)
 		if an > 64 || g.scalar(g.typ(d.typ)) == "" {

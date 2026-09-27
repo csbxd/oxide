@@ -27,7 +27,7 @@ def remove_alias(api, inventory):
     api["public_api"] = [item for item in api["public_api"] if item["name"] != name]
 
 def add_api(api, inventory):
-    item = copy.deepcopy(next(item for item in api["public_api"] if item["kind"] == "function" and item["definition"].startswith("mermaid_rs_renderer::")))
+    item = copy.deepcopy(next(item for item in api["public_api"] if item["kind"] == "function"))
     item["name"] += "_unexpected"
     api["public_api"].append(item)
     api["roots"].append({"name": item["name"], "symbol": "unexpected"})

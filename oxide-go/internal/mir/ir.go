@@ -11,18 +11,21 @@ import (
 )
 
 type Program struct {
-	Compiler        string                     `json:"compiler"`
-	PanicStrategy   string                     `json:"panic_strategy"`
-	RuntimeChecks   map[string]bool            `json:"runtime_checks"`
-	Target          string                     `json:"target"`
-	Roots           []Root                     `json:"roots"`
-	PublicDropTypes []PublicDropType           `json:"public_drop_types"`
-	Types           []Type                     `json:"types"`
-	Functions       []Function                 `json:"functions"`
-	Allocations     []json.RawMessage          `json:"allocations"`
-	VTables         map[string]uint64          `json:"vtables"`
-	Upcasts         map[string]int64           `json:"upcasts"`
-	ThreadLocals    map[uint64]json.RawMessage `json:"thread_locals"`
+	Compiler          string                     `json:"compiler"`
+	PanicStrategy     string                     `json:"panic_strategy"`
+	RuntimeChecks     map[string]bool            `json:"runtime_checks"`
+	Target            string                     `json:"target"`
+	Roots             []Root                     `json:"roots"`
+	PublicDropTypes   []PublicDropType           `json:"public_drop_types"`
+	PublicTypes       []PublicType               `json:"public_types"`
+	APITypes          []Type                     `json:"api_types"`
+	ProcessExitSymbol string                     `json:"process_exit_symbol"`
+	Types             []Type                     `json:"types"`
+	Functions         []Function                 `json:"functions"`
+	Allocations       []json.RawMessage          `json:"allocations"`
+	VTables           map[string]uint64          `json:"vtables"`
+	Upcasts           map[string]int64           `json:"upcasts"`
+	ThreadLocals      map[uint64]json.RawMessage `json:"thread_locals"`
 }
 type Allocation struct {
 	ID    uint64
@@ -50,36 +53,110 @@ type PublicDropType struct {
 	Name   string `json:"name"`
 	Symbol string `json:"symbol"`
 }
+
+type PublicType struct {
+	Name string `json:"name"`
+	Type int    `json:"type"`
+}
+
+type TypeMember struct {
+	Name   string `json:"name"`
+	Type   int    `json:"type"`
+	Offset uint64 `json:"offset"`
+	Public bool   `json:"public"`
+}
+
+type Container struct {
+	Kind            string `json:"kind"`
+	Element         int    `json:"element"`
+	Allocator       int    `json:"allocator"`
+	GlobalAllocator bool   `json:"global_allocator"`
+	DataOffset      uint64 `json:"data_offset"`
+	LenOffset       uint64 `json:"len_offset"`
+	CapacityOffset  uint64 `json:"capacity_offset"`
+	MetaOffset      uint64 `json:"meta_offset"`
+	Metadata        string `json:"metadata"`
+	Key             int    `json:"key"`
+	Value           int    `json:"value"`
+}
+
+type VariantInfo struct {
+	Name          string `json:"name"`
+	Inhabited     bool   `json:"inhabited"`
+	NonExhaustive bool   `json:"non_exhaustive"`
+}
+
+type DebugAPI struct {
+	ArgumentSymbol  string `json:"argument_symbol"`
+	ArgumentsSymbol string `json:"arguments_symbol"`
+	FormatSymbol    string `json:"format_symbol"`
+	ValueType       int    `json:"value_type"`
+	ArgumentType    int    `json:"argument_type"`
+	ArgumentArray   int    `json:"argument_array"`
+	TemplateType    int    `json:"template_type"`
+	ArgumentsType   int    `json:"arguments_type"`
+	StringType      int    `json:"string_type"`
+	ByReference     bool   `json:"by_reference"`
+	Template        []byte `json:"template"`
+}
+
+type IterationAPI struct {
+	Symbol       string `json:"symbol"`
+	IteratorType int    `json:"iterator_type"`
+	NextSymbol   string `json:"next_symbol"`
+	ItemType     int    `json:"item_type"`
+}
+
+type JSONAPI struct {
+	SerializeSymbol   string `json:"serialize_symbol"`
+	DeserializeSymbol string `json:"deserialize_symbol"`
+	ValueSymbol       string `json:"value_symbol"`
+}
+
 type Type struct {
-	ID                int         `json:"id"`
-	Name              string      `json:"name"`
-	Kind              string      `json:"kind"`
-	Size              uint64      `json:"size"`
-	Align             uint64      `json:"align"`
-	Pack              uint64      `json:"pack"`
-	Sized             bool        `json:"sized"`
-	LayoutError       string      `json:"layout_error"`
-	ValueABI          string      `json:"value_abi"`
-	ABIScalar         *Primitive  `json:"abi_scalar"`
-	ABIPair           *ScalarPair `json:"abi_pair"`
-	Fields            []uint64    `json:"fields"`
-	Variants          [][]uint64  `json:"variants"`
-	FieldTypes        []int       `json:"field_types"`
-	VariantFieldTypes [][]int     `json:"variant_field_types"`
-	VariantNames      []string    `json:"variant_names"`
-	AdtKind           string      `json:"adt_kind"`
-	Pointee           int         `json:"pointee"`
-	Element           int         `json:"element"`
-	Length            uint64      `json:"length"`
-	Function          string      `json:"function"`
-	FnInputs          []int       `json:"fn_inputs"`
-	FnOutput          int         `json:"fn_output"`
-	FnABI             string      `json:"fn_abi"`
-	FnVariadic        bool        `json:"fn_variadic"`
-	FnFixedCount      int         `json:"fn_fixed_count"`
-	Discriminants     []string    `json:"discriminants"`
-	Variant           int         `json:"variant"`
-	Tag               *Tag        `json:"tag"`
+	ID                int            `json:"id"`
+	Name              string         `json:"name"`
+	Kind              string         `json:"kind"`
+	Size              uint64         `json:"size"`
+	Align             uint64         `json:"align"`
+	Pack              uint64         `json:"pack"`
+	Sized             bool           `json:"sized"`
+	LayoutError       string         `json:"layout_error"`
+	ValueABI          string         `json:"value_abi"`
+	ABIScalar         *Primitive     `json:"abi_scalar"`
+	ABIPair           *ScalarPair    `json:"abi_pair"`
+	Fields            []uint64       `json:"fields"`
+	Variants          [][]uint64     `json:"variants"`
+	FieldTypes        []int          `json:"field_types"`
+	VariantFieldTypes [][]int        `json:"variant_field_types"`
+	VariantNames      []string       `json:"variant_names"`
+	AdtKind           string         `json:"adt_kind"`
+	Pointee           int            `json:"pointee"`
+	Element           int            `json:"element"`
+	Length            uint64         `json:"length"`
+	Function          string         `json:"function"`
+	FnInputs          []int          `json:"fn_inputs"`
+	FnOutput          int            `json:"fn_output"`
+	FnABI             string         `json:"fn_abi"`
+	FnVariadic        bool           `json:"fn_variadic"`
+	FnFixedCount      int            `json:"fn_fixed_count"`
+	Discriminants     []string       `json:"discriminants"`
+	Variant           int            `json:"variant"`
+	Tag               *Tag           `json:"tag"`
+	Canonical         *int           `json:"canonical"`
+	PointerKind       string         `json:"pointer_kind"`
+	Mutable           bool           `json:"mutable"`
+	NeedsDrop         bool           `json:"needs_drop"`
+	Members           [][]TypeMember `json:"members"`
+	Container         *Container     `json:"container"`
+	DefaultSymbol     string         `json:"default_symbol"`
+	DisplaySymbol     string         `json:"display_symbol"`
+	DropSymbol        string         `json:"drop_symbol"`
+	VariantsInfo      []VariantInfo  `json:"variants_info"`
+	Debug             *DebugAPI      `json:"debug"`
+	Iteration         *IterationAPI  `json:"iteration"`
+	MutableIteration  *IterationAPI  `json:"mutable_iteration"`
+	JSON              *JSONAPI       `json:"json"`
 }
 type Primitive struct {
 	Int *struct {

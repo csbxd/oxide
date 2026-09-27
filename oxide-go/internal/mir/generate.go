@@ -36,6 +36,7 @@ type generator struct {
 	arrays                map[[2]uint64]int
 	extraTypes            []*Type
 	nextType              int
+	apiTypes              map[int]*Type
 }
 type generationError string
 
@@ -70,12 +71,45 @@ func Generate(p *Program, packageName string) (out []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
+	g.validatePublicDrops()
 	required := map[string]bool{}
+	if p.ProcessExitSymbol != "" {
+		required[p.ProcessExitSymbol] = true
+	}
 	for _, r := range p.Roots {
 		required[r.Symbol] = true
 	}
 	for _, d := range p.PublicDropTypes {
 		required[d.Symbol] = true
+	}
+	for _, t := range p.APITypes {
+		for _, symbol := range []string{t.DropSymbol, t.DefaultSymbol, t.DisplaySymbol} {
+			if symbol != "" {
+				required[symbol] = true
+			}
+		}
+		if d := t.Debug; d != nil {
+			required[d.ArgumentSymbol] = true
+			required[d.ArgumentsSymbol] = true
+			required[d.FormatSymbol] = true
+		}
+		for _, it := range []*IterationAPI{t.Iteration, t.MutableIteration} {
+			if it != nil {
+				required[it.Symbol] = true
+				required[it.NextSymbol] = true
+			}
+		}
+		if j := t.JSON; j != nil {
+			if j.SerializeSymbol != "" {
+				required[j.SerializeSymbol] = true
+			}
+			if j.DeserializeSymbol != "" {
+				required[j.DeserializeSymbol] = true
+			}
+			if j.ValueSymbol != "" {
+				required[j.ValueSymbol] = true
+			}
+		}
 	}
 	for _, f := range p.Functions {
 		for _, call := range f.AssertCalls {
@@ -169,8 +203,9 @@ func Generate(p *Program, packageName string) (out []byte, err error) {
 		}
 		g.function(&p.Functions[i])
 	}
+	g.emitPublicTypes()
 	g.emitRoots()
-	g.emitPublicDrops()
+	g.emitProcessExit()
 	for _, t := range g.extraTypes {
 		g.typeDecl(t)
 	}

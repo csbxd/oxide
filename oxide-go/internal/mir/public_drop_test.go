@@ -25,6 +25,7 @@ func publicDropTestProgram() *Program {
 			{ID: 7, Kind: "aggregate", Sized: true, Size: 256 << 10, Align: 64, Fields: []uint64{0}, VariantFieldTypes: [][]int{{2}}},
 		},
 		PublicDropTypes: []PublicDropType{{Type: 5, Name: "demo::Aligned", Symbol: "small"}, {Type: 7, Name: "demo::Large", Symbol: "large"}},
+		PublicTypes:     []PublicType{{Name: "demo::Aligned", Type: 5}, {Name: "demo::Large", Type: 7}},
 	}
 	for _, f := range []struct {
 		symbol string
@@ -51,7 +52,6 @@ func TestPublicDropValidation(t *testing.T) {
 		{"missing destructor", "missing function", func(p *Program) { p.PublicDropTypes[0].Symbol = "missing" }},
 		{"wrong pointee", "invalid destructor signature", func(p *Program) { p.PublicDropTypes[0].Type = 7; p.PublicDropTypes = p.PublicDropTypes[:1] }},
 		{"tracked destructor", "invalid destructor signature", func(p *Program) { p.Functions[0].TrackCaller = true }},
-		{"root collision", "collides with generated destructor DropT5", func(p *Program) { p.Roots = []Root{{Name: "demo::drop_t5", Symbol: "small"}} }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p := publicDropTestProgram()
@@ -81,13 +81,13 @@ import("testing";"unsafe"; f "public-drop-test"; oxide "github.com/csbxd/oxide/o
 func TestDropStorage(t *testing.T) {
  ctx:=oxide.NewContext();defer ctx.Close()
  counter:=ctx.Alloc(8,8)
- var small f.T5; *(*uintptr)(unsafe.Pointer(&small))=counter
- large:=ctx.Alloc(256<<10,64);*(*uintptr)(unsafe.Pointer(large))=counter
+ small:=f.TypeAligned.Uninit(ctx); *(*uintptr)(unsafe.Pointer(small.Addr))=counter
+ large:=f.TypeLarge.Uninit(ctx);*(*uintptr)(unsafe.Pointer(large.Addr))=counter
  mark:=ctx.Mark()
  requireNoGoAllocations(t,100,func(){
-  *(*uint64)(unsafe.Pointer(counter))=0;f.DropT5(ctx,small)
+  *(*uint64)(unsafe.Pointer(counter))=0;small.Drop(ctx)
   if *(*uint64)(unsafe.Pointer(counter))!=42 {t.Fatal("small drop target")}
-  *(*uint64)(unsafe.Pointer(counter))=0;f.DropT7(ctx,large)
+  *(*uint64)(unsafe.Pointer(counter))=0;large.Drop(ctx)
   if *(*uint64)(unsafe.Pointer(counter))!=42 {t.Fatal("large drop target")}
   if ctx.Mark()!=mark||ctx.Failed(){t.Fatal("destructor leaked frame/panic")}
  })

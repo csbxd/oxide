@@ -1,0 +1,22 @@
+[package]
+name = "oxide_json_api"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[features]
+default = ["json"]
+json = ["dep:serde_json"]
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = { version = "=1.0.149", optional = true }
+
+[lib]
+path = "../json_api.rs"
+
+[[bin]]
+name = "oxide-json-api-native"
+path = "../json_api.rs"
+
+[workspace]

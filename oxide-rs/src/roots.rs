@@ -4,6 +4,7 @@ use rustc_hir::def_id::{CRATE_DEF_ID, CrateNum, DefId, LOCAL_CRATE};
 use rustc_middle::ty::print::{PrintTraitRefExt, with_no_trimmed_paths, with_no_visible_paths};
 use rustc_middle::ty::{self, TyCtxt, TypeVisitableExt};
 use rustc_public::mir::mono::Instance;
+use rustc_public::ty::Ty;
 use rustc_public::{CrateDef, ItemKind, all_local_items, rustc_internal};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -11,6 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 pub struct Roots {
     pub selected: Vec<(String, Instance)>,
     pub public_api: Vec<Value>,
+    pub public_types: Vec<(String, Ty)>,
 }
 
 fn requested_roots(filter: &str) -> Result<HashSet<&str>, String> {
@@ -44,7 +46,20 @@ struct Discovery<'tcx> {
     candidates: BTreeMap<String, Instance>,
     inventory: Vec<Value>,
     types: Vec<(String, DefId, ty::Ty<'tcx>, bool)>,
+    public_types: Vec<(String, Ty)>,
     traits: HashMap<CrateNum, HashMap<DefId, String>>,
+}
+
+fn sized_signature<'tcx>(tcx: TyCtxt<'tcx>, instance: ty::Instance<'tcx>) -> bool {
+    let signature = tcx
+        .fn_sig(instance.def_id())
+        .instantiate(tcx, instance.args)
+        .skip_norm_wip();
+    let signature = tcx.instantiate_bound_regions_with_erased(signature);
+    signature
+        .inputs_and_output
+        .iter()
+        .all(|ty| ty.is_sized(tcx, ty::TypingEnv::fully_monomorphized()))
 }
 
 pub fn discover(tcx: TyCtxt<'_>, filter: &str) -> Result<Roots, String> {
@@ -53,6 +68,7 @@ pub fn discover(tcx: TyCtxt<'_>, filter: &str) -> Result<Roots, String> {
         candidates: BTreeMap::new(),
         inventory: vec![],
         types: vec![],
+        public_types: vec![],
         traits: HashMap::new(),
     };
     discovery.module(
@@ -79,7 +95,9 @@ pub fn discover(tcx: TyCtxt<'_>, filter: &str) -> Result<Roots, String> {
             {
                 let def = rustc_internal::internal(tcx, item.def_id());
                 let instance = ty::Instance::mono(tcx, def);
-                if rustc_middle::mono::MonoItem::Fn(instance).is_instantiable(tcx) {
+                if rustc_middle::mono::MonoItem::Fn(instance).is_instantiable(tcx)
+                    && sized_signature(tcx, instance)
+                {
                     discovery.add_root(item.name(), rustc_internal::stable(instance))?;
                 }
             }
@@ -113,6 +131,7 @@ pub fn discover(tcx: TyCtxt<'_>, filter: &str) -> Result<Roots, String> {
     Ok(Roots {
         selected: discovery.candidates.into_iter().collect(),
         public_api: discovery.inventory,
+        public_types: discovery.public_types,
     })
 }
 
@@ -146,12 +165,14 @@ impl<'tcx> Discovery<'tcx> {
         let impossible = instance.is_some_and(|instance| {
             !rustc_middle::mono::MonoItem::Fn(instance).is_instantiable(self.tcx)
         });
+        let unsized_value = instance.is_some_and(|instance| !sized_signature(self.tcx, instance));
         self.inventory.push(json!({
             "name": name, "definition": self.tcx.def_path_str(def), "kind": kind,
-            "status": if generic { "requires_monomorphization" } else if impossible { "unsatisfied_predicates" } else { "monomorphic" },
+            "status": if generic { "requires_monomorphization" } else if impossible { "unsatisfied_predicates" } else if unsized_value { "unsupported_unsized_value" } else { "monomorphic" },
         }));
         if let Some(instance) = instance
             && !impossible
+            && !unsized_value
         {
             self.add_root(name, rustc_internal::stable(instance))?;
         }
@@ -216,6 +237,14 @@ impl<'tcx> Discovery<'tcx> {
             .generics_of(def)
             .requires_monomorphization(self.tcx);
         let ty = self.tcx.type_of(def).instantiate_identity().skip_norm_wip();
+        if !generic {
+            let public_ty = self.tcx.normalize_erasing_regions(
+                ty::TypingEnv::fully_monomorphized(),
+                self.tcx.type_of(def).instantiate_identity(),
+            );
+            self.public_types
+                .push((path.clone(), rustc_internal::stable(public_ty)));
+        }
         let Some(adt) = ty.ty_adt_def() else {
             return Ok(());
         };
@@ -417,9 +446,15 @@ impl<'tcx> Discovery<'tcx> {
                             )
                             .map_err(|_| format!("cannot resolve public trait method {name}"))?
                             .ok_or_else(|| format!("cannot resolve public trait method {name}"))?;
-                            api["status"] = json!("monomorphic");
+                            api["status"] = json!(if sized_signature(self.tcx, instance) {
+                                "monomorphic"
+                            } else {
+                                "unsupported_unsized_value"
+                            });
                             api["definition"] = json!(self.tcx.def_path_str(instance.def_id()));
-                            self.add_root(name, rustc_internal::stable(instance))?;
+                            if sized_signature(self.tcx, instance) {
+                                self.add_root(name, rustc_internal::stable(instance))?;
+                            }
                         }
                     }
                     self.inventory.push(api);

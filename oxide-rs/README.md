@@ -17,6 +17,8 @@ Run the frontend regression checks after building:
 sh oxide/oxide-rs/build.sh
 python3 oxide/oxide-rs/tests/check.py
 python3 oxide/oxide-rs/tests/check_roots.py
+python3 oxide/oxide-rs/tests/check_type_api.py
+python3 oxide/oxide-rs/tests/check_json_api.py
 python3 oxide/oxide-rs/tests/check_panic.py
 ```
 
@@ -39,12 +41,51 @@ compiler `spread_arg` tuples follow the same expansion as the generated entry
 point. These IDs preserve ownership distinctions even when multiple Rust types
 share one Go ABI representation.
 
-`public_drop_types` records the sized, owned types in those signatures for which
+`public_drop_types` records the sized, owned types in the API type closure for which
 rustc reports `needs_drop`, together with their real `drop_in_place` instance.
 The exporter enqueues that glue and writes the same list in the API sidecar.
-Borrowed references and raw pointers do not export their pointee's destructor.
-Go callers consume owned results using the generated `DropT<ID>` helpers;
-closing a runtime context does not implicitly drop ordinary Rust heap values.
+References and raw pointers have no owned destructor. Their pointee can have a
+separate descriptor and drop instance, but dropping a reference never drops its
+pointee. Go callers release owned values through the descriptor's real Rust drop
+operation; closing a runtime context does not implicitly drop Rust heap values.
+`process_exit_symbol` binds the actual std `process_exit` diagnostic item when
+std is linked. This preserves Rust's normal runtime cleanup and output flushing
+when a Go executable hosts the library; no-std exports leave it empty.
+
+`public_types` maps public Rust type paths to compiler type IDs. `api_types`
+contains the operable closure of root signatures, concrete public types, public
+fields, enum payloads and container elements. Each descriptor has a real Rust
+name and a `canonical` ID computed by rustc region erasure. Distinct Rust types
+are never equated just because their Go ABI representations happen to match.
+`members` records each variant's field name, type, visibility and actual byte
+offset; `variants_info` records inhabitance and non-exhaustive restrictions.
+Private fields remain inaccessible. A private DST tail's descriptor is retained
+because it determines the enclosing value's dynamic size and alignment.
+
+String, Box and Global allocator identities come from lang items; Vec, Result,
+Option, Path and OsStr identities come from compiler diagnostic items. Container
+data/length/capacity offsets are computed through the pinned standard library's
+named fields and rustc target layouts, then checked against scalar ABI shapes.
+ZST Vec capacity and non-null empty-buffer alignment are explicit metadata.
+Unsized str/slice/Path/OsStr views are distinct from stored fat references;
+pointer descriptors retain reference/raw-pointer kind and mutability.
+
+`default_symbol` and `display_symbol` bind actual Rust Default and ToString
+implementations after predicate checking. Debug binds the pinned Rust
+`Argument::new_debug`, `Arguments::new` and `alloc::fmt::format` instances, with
+compiler-provided intermediate layouts. The template encoding is checked against
+a native `format_args!` expansion; Go does not implement Rust's formatting rules.
+These operations and destructors are generated only for the API type closure,
+not every internal type in a large dependency graph. The type metadata test also
+checks real initialized String/Vec storage and struct offsets against native Rust.
+Map descriptors identify HashMap and BTreeMap through diagnostic items and bind
+their concrete Rust `iter`/`iter_mut` and `Iterator::next` instances. Their iterator
+state and actual `Option` item result join the API closure; Go need not know a
+map's private table/node representation. JSON operations similarly bind an
+already linked serde_json crate's real serializer/deserializer instances after
+checking each type's predicates. `value_symbol` binds `to_value::<&T>` separately
+from string serialization: it borrows T and returns Rust's real JSON Value,
+preserving that operation's object ordering and floating-point conversion.
 Generic type/const parameters require concrete Rust instantiations;
 an unbounded set of blanket-trait implementations is not enumerated. The finite
 trait inventory covers explicit/derived implementations in a public type's

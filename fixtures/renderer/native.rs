@@ -1,4 +1,5 @@
-use oxide_renderer_fixture::fixture::{render_svg, write_png};
+mod fixture;
+use fixture::{render_svg, write_png};
 use std::path::{Path, PathBuf};
 
 fn collect_cases(root: &Path, paths: &mut Vec<PathBuf>) {

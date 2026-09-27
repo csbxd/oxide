@@ -29,14 +29,15 @@ for target in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"):
         subprocess.run(command, env=env, check=True)
         program = json.loads(output.read_text())
         sidecar = json.loads(output.with_suffix(".api.json").read_text())
-        assert sidecar == {key: program[key] for key in ("compiler", "target", "roots", "public_api", "public_drop_types")}
+        assert sidecar == {key: program[key] for key in ("compiler", "target", "process_exit_symbol", "roots", "public_api", "public_drop_types", "public_types", "api_types")}
+        assert program["process_exit_symbol"] is None
         roots = {value["name"]: value["symbol"] for value in program["roots"]}
         root_types = {value["name"]: value for value in program["roots"]}
         inventory = program["public_api"]
         functions = {value["symbol"]: value for value in program["functions"]}
         types = {value["id"]: value for value in program["types"]}
         drops = {value["type"]: value for value in program["public_drop_types"]}
-        assert len(drops) == len(program["public_drop_types"]) == 1
+        assert len(drops) == len(program["public_drop_types"])
         owned = root_types["facade::consume_drop"]["params"][0]
         assert drops[owned]["name"] == "dependency::DropParameter"
         drop_body = functions[drops[owned]["symbol"]]["body"]
@@ -44,7 +45,7 @@ for target in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"):
         assert types[drop_body["locals"][1]["ty"]]["pointee"] == owned
         for name in ("facade::borrow_only", "facade::raw_only"):
             for ty in [*root_types[name]["params"], root_types[name]["return"]]:
-                assert ty not in drops and types[ty].get("pointee") not in drops
+                assert ty not in drops and not types[ty]["needs_drop"]
         callable_root = next(value for name, value in root_types.items() if name.startswith("<facade::CallOnce as ") and name.endswith("::call_once"))
         callable_body = functions[callable_root["symbol"]]["body"]
         assert callable_body["spread_arg"] == 2

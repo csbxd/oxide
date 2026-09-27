@@ -14,6 +14,8 @@ import (
 
 type Config struct {
 	Manifest, Package, Output, Target, Frontend, Roots string
+	Features                                           string
+	NoDefaultFeatures                                  bool
 	OverflowChecks                                     bool
 }
 
@@ -78,6 +80,12 @@ func runMIR(cfg Config) (*Result, error) {
 	defer os.RemoveAll(stage)
 	exportPath := filepath.Join(stage, "oxide.mir.json")
 	args := []string{"rustc", "-Zbuild-std=std,panic_unwind", "--manifest-path", pkg.ManifestPath, "--package", pkg.Name, "--target", triple}
+	if cfg.Features != "" {
+		args = append(args, "--features", cfg.Features)
+	}
+	if cfg.NoDefaultFeatures {
+		args = append(args, "--no-default-features")
+	}
 	if len(target.Kind) > 0 && target.Kind[0] == "bin" {
 		args = append(args, "--bin", target.Name)
 	} else {

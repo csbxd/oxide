@@ -36,6 +36,10 @@ func TestSIMDValueOperands(t *testing.T) {
 	g.line("func Shuffle(x [2]uint64) [2]uint64 { v1:=*(*T5)(unsafe.Pointer(&x))")
 	g.simdIntrinsic("simd_shuffle", []json.RawMessage{copy1, constant(5, 8, 11, 22), constant(0, 4, 2, 0)}, Place{Local: 1})
 	g.line("return *(*[2]uint64)(unsafe.Pointer(&v1)) }")
+	g.line("func Insert(x [2]uint64) [2]uint64 { v1:=*(*T5)(unsafe.Pointer(&x))")
+	firstLane := json.RawMessage(`{"Copy":{"local":1,"projection":[{"ConstantIndex":{"offset":0,"from_end":false}}]}}`)
+	g.simdIntrinsic("simd_insert", []json.RawMessage{constant(5, 8, 11, 22), constant(1, 4, 1), firstLane}, Place{Local: 1})
+	g.line("return *(*[2]uint64)(unsafe.Pointer(&v1)) }")
 	g.f = &Function{Body: &Body{Locals: []Local{{Type: 4}, {Type: 3}}}}
 	g.frame = map[int]uint64{0: 0, 1: 0}
 	g.line("func Widen(x [4]uint32) [4]uint64 { var storage [4]uint64; *(*[4]uint32)(unsafe.Pointer(&storage))=x; bp:=uintptr(unsafe.Pointer(&storage))")
@@ -54,8 +58,9 @@ func TestSIMDValueOperands(t *testing.T) {
 import "testing"
 func TestValueOperands(t *testing.T) {
  if got:=Shuffle([2]uint64{41,42}); got!=[2]uint64{11,41} {t.Fatalf("shuffle constant/alias: %v",got)}
+ if got:=Insert([2]uint64{41,42}); got!=[2]uint64{11,41} {t.Fatalf("insert scalar/destination alias: %v",got)}
  if got:=Widen([4]uint32{1,2,3,4}); got!=[4]uint64{1,2,3,4} {t.Fatalf("overlapping widening cast: %v",got)}
  if got:=Reduce([4]uint32{1,16,256,0x80000000}); got!=0x80000111 {t.Fatalf("reduction: %x",got)}
- requireNoGoAllocations(t,100,func(){Shuffle([2]uint64{41,42});Widen([4]uint32{1,2,3,4})})
+ requireNoGoAllocations(t,100,func(){Shuffle([2]uint64{41,42});Insert([2]uint64{41,42});Widen([4]uint32{1,2,3,4})})
 }`)
 }

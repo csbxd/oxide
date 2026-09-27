@@ -1,6 +1,6 @@
 //go:build memory.counters
 
-package rendererfixture
+package rendererfixture_test
 
 import (
 	"maps"
@@ -56,14 +56,14 @@ func TestRendererOwnershipChaos(t *testing.T) {
 	invoke := func(c *oxide.Context, s sample, png bool) {
 		mark := c.Mark()
 		defer c.Restore(mark)
-		input := putBytes(c, s.source)
+		input := c.CopyBytes(s.source)
 		if png {
 			if err := os.Remove(outputPath); err != nil && !os.IsNotExist(err) {
 				t.Fatal(err)
 			}
-			path := putBytes(c, []byte(outputPath))
+			path := c.CopyString(outputPath)
 			frame := c.Mark()
-			Fixture_WritePng(c, input, uintptr(len(s.source)), path, uintptr(len(outputPath)))
+			writePNG(c, input, path)
 			checkFrame(t, c, frame)
 			got, err := os.ReadFile(outputPath)
 			if err != nil {
@@ -73,7 +73,7 @@ func TestRendererOwnershipChaos(t *testing.T) {
 		} else {
 			output := c.Alloc(uintptr(len(s.svg)), 1)
 			frame := c.Mark()
-			n := Fixture_RenderSvg(c, input, uintptr(len(s.source)), output, uintptr(len(s.svg)))
+			n := renderSVG(c, input, unsafe.Slice((*byte)(unsafe.Pointer(output)), len(s.svg)))
 			checkFrame(t, c, frame)
 			if n != uintptr(len(s.svg)) {
 				t.Fatalf("%s SVG size %d, want %d", s.name, n, len(s.svg))

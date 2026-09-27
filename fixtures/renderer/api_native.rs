@@ -1,4 +1,5 @@
-use oxide_renderer_fixture::api::{CASES, run};
+mod api;
+use api::{CASES, run};
 use std::path::PathBuf;
 
 fn main() {

@@ -6,10 +6,15 @@ extern crate rustc_hir;
 extern crate rustc_interface;
 extern crate rustc_middle;
 extern crate rustc_public;
+extern crate rustc_span;
 extern crate serde_json;
 
+mod debug_api;
 mod export;
+mod iteration_api;
+mod json_api;
 mod roots;
+mod type_api;
 
 use std::env;
 use std::path::PathBuf;
