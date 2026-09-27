@@ -1,0 +1,8 @@
+package consumer
+
+import f "oxide-type-api-conformance"
+
+// want-error: cannot convert .*Value__Spoof_String.* to type .*Value__Spoof_Vec
+func invalid(value f.Value__Spoof_String) {
+	_ = f.Value__Spoof_Vec(value)
+}

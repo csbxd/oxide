@@ -1,0 +1,8 @@
+// want-error: cannot use value.Ref\(\).*Ref__Document.* as .*Value__Document.*return statement
+package consumer
+
+import f "oxide-type-api-conformance"
+
+func wrong(value f.Value__Document) f.Value__Document {
+	return value.Ref()
+}

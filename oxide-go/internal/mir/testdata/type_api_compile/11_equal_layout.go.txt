@@ -1,0 +1,10 @@
+// want-error: cannot use value .*Value__Spoof_String.* as .*Value__Spoof_Vec.*return statement
+package consumer
+
+import f "oxide-type-api-conformance"
+
+// These two real Rust tuple structs both contain one u64. Equal layout does
+// not permit an implicit conversion between their public owning types.
+func wrong(value f.Value__Spoof_String) f.Value__Spoof_Vec {
+	return value
+}

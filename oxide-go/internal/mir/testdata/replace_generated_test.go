@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-var replacementTarget, replacementSource oxide.Value
+var replacementTarget, replacementSource Value__Owner
 
 func replacementCallback(ctx *oxide.Context) (unit oxideReplaceUnit) {
 	// The actual Rust catch_unwind owns and releases the forwarded exception.
@@ -50,10 +50,10 @@ func TestReplaceAssignmentMatchesNative(t *testing.T) {
 				Reset(ctx)
 				if id == 0 {
 					left, right := MakeZero(ctx), MakeZero(ctx)
-					if left.Type.Size != 0 || right.Type != left.Type {
+					if left.Size() != 0 || right.Size() != 0 {
 						t.Fatal("ZST fixture type")
 					}
-					right.Addr = left.Addr // Distinct ZST owners legally share storage.
+					right = UnsafeValue__Zero(left.Addr()) // Distinct ZST owners legally share storage.
 					frame := ctx.Mark()
 					left.Replace(ctx, right)
 					if State(ctx) != after || ctx.Mark() != frame {
@@ -63,9 +63,9 @@ func TestReplaceAssignmentMatchesNative(t *testing.T) {
 				} else {
 					replacementTarget = MakeOwner(ctx, 1, panicked != 0)
 					replacementSource = MakeOwner(ctx, 2, false)
-					sourceID := replacementSource.Field("id")
+					sourceID := replacementSource.Ref().Field__Id().Addr()
 					if id >= 3 {
-						SourceSlot(ctx, replacementSource.Addr)
+						SourceSlot(ctx, replacementSource.Addr())
 					}
 					frame := ctx.Mark()
 					if caught := CatchCallback(ctx, oxide.FunctionPointer(replacementCallback)); caught != (panicked != 0) {
@@ -75,12 +75,12 @@ func TestReplaceAssignmentMatchesNative(t *testing.T) {
 					if ctx.Mark() != frame || ctx.Failed() {
 						t.Fatal("replace snapshot/panic state leaked")
 					}
-					if State(ctx) != after || Inspect(ctx, replacementTarget) != want {
+					if State(ctx) != after || Inspect(ctx, replacementTarget.Ref()) != want {
 						t.Fatal("assignment did not install the evaluated RHS")
 					}
 					// Inspect only the raw scalar slot newly written by the
 					// destructor, never the already-consumed source Owner.
-					if id >= 3 && (oxide.Value{Addr: sourceID.Addr, Type: sourceID.Type}).Uint() != 99 {
+					if id >= 3 && UnsafeRef__U64(sourceID).Get() != 99 {
 						t.Fatal("old destructor did not exercise source-slot mutation")
 					}
 					replacementTarget.Drop(ctx)

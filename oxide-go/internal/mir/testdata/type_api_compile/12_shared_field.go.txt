@@ -1,0 +1,8 @@
+// want-error: value.Field__Id\(\).Set undefined .*no field or method Set
+package consumer
+
+import f "oxide-type-api-conformance"
+
+func wrong(value f.Ref__Node) {
+	value.Field__Id().Set(7)
+}

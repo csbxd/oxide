@@ -8,7 +8,7 @@ import (
 )
 
 // Span is a byte range in stable Rust storage, not a Rust slice or str layout.
-// Generated type metadata determines how this range is stored in a Rust value.
+// Generated typed adapters place it in the compiler's Rust slice or str ABI.
 // A Span never owns or frees its storage.
 type Span struct {
 	Data uintptr

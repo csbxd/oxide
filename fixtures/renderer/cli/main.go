@@ -13,9 +13,9 @@ func main() {
 	defer c.Close()
 	result := renderer.Run(c)
 	status := 0
-	if result.Variant() == "Err" {
-		message := result.Field("0").Display(c)
-		fmt.Fprintf(os.Stderr, "error: %s\n", message.String())
+	if result.Ref().Variant() == renderer.Variant__Core_Result_Result__Of__Unit__And__Anyhow_Error__End__Err {
+		message := result.Ref().Field__Err__0().Display(c)
+		fmt.Fprintf(os.Stderr, "error: %s\n", message.Ref().String())
 		message.Drop(c)
 		status = 1
 	}

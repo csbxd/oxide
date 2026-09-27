@@ -106,10 +106,11 @@ def main():
         module = root / "oxide-go"
         (output / "go.mod").write_text("module oxide-renderer-conformance\n\ngo 1.27.1\n\nrequire github.com/csbxd/oxide/oxide-go v0.0.0\nreplace github.com/csbxd/oxide/oxide-go => " + json.dumps(str(module)) + "\n")
         shutil.copyfile(fixture / "generated_test.go", output / "oxide_gen_test.go")
-        shutil.copyfile(fixture / "api_generated_test.go", output / "api_generated_test.go")
+        for source in sorted(fixture.glob("api_*_test.go")):
+            shutil.copyfile(source, output / source.name)
         shutil.copyfile(fixture / "chaos_test.go", output / "chaos_test.go")
         shutil.copyfile(fixture / "heap_trace_test.go", output / "heap_trace_test.go")
-        for name in ("direct_test.go", "api_direct_test.go", "api_more_test.go", "api_construct_test.go", "owned_return_test.go"):
+        for name in ("direct_test.go", "owned_return_test.go"):
             shutil.copyfile(fixture / name, output / name)
         for source, destination in ((fixture / "cases", output / "cases"), (reference, output / "reference")):
             if destination.exists():

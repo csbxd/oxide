@@ -1,0 +1,8 @@
+// want-error: value.Field__Secret undefined .*Ref__PrivateOwner.*no field or method Field__Secret
+package consumer
+
+import f "oxide-type-api-conformance"
+
+func wrong(value f.Ref__PrivateOwner) {
+	value.Field__Secret()
+}

@@ -1,0 +1,11 @@
+// want-error: cannot use value.Ref\(\).*Ref__Document.* as .*Ref__Event.*f.DebugEvent
+package consumer
+
+import (
+	oxide "github.com/csbxd/oxide/oxide-go/runtime"
+	f "oxide-type-api-conformance"
+)
+
+func wrong(ctx *oxide.Context, value f.Value__Document) {
+	f.DebugEvent(ctx, value.Ref())
+}

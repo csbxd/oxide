@@ -12,7 +12,7 @@ import (
 	"modernc.org/libc"
 )
 
-type ownedInputs struct{ valid, invalid oxide.Span }
+type ownedInputs struct{ valid, invalid Ref__Str }
 type ownedObservation struct {
 	before, retained, after            oxide.HeapSnapshot
 	frame, returnedFrame, droppedFrame oxide.Mark
@@ -24,7 +24,7 @@ type ownedCase struct {
 }
 
 func ownedInput(ctx *oxide.Context) ownedInputs {
-	return ownedInputs{ctx.CopyString("flowchart LR\n A[Alpha] -->|go| B{Beta}\n"), ctx.CopyString("not a diagram")}
+	return ownedInputs{Borrow__Str(ctx.CopyString("flowchart LR\n A[Alpha] -->|go| B{Beta}\n")), Borrow__Str(ctx.CopyString("not a diagram"))}
 }
 
 func ownedFrame(t *testing.T, item ownedCase, ctx *oxide.Context, mark oxide.Mark, result ownedObservation) {
@@ -127,7 +127,7 @@ func owned_theme(ctx *oxide.Context, input ownedInputs) ownedObservation {
 func owned_config(ctx *oxide.Context, input ownedInputs) ownedObservation {
 	mark := ctx.Mark()
 	before := oxide.HeapStats()
-	value := TypeConfig.Default(ctx)
+	value := Default__Config(ctx)
 	retained := oxide.HeapStats()
 	valueFrame := ctx.Mark()
 	value.Drop(ctx)

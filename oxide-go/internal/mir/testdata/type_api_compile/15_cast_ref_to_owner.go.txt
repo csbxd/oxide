@@ -1,0 +1,8 @@
+package consumer
+
+import f "oxide-type-api-conformance"
+
+// want-error: cannot convert .*Ref__Node.* to type .*Value__Node
+func invalid(value f.Ref__Node) {
+	_ = f.Value__Node(value)
+}

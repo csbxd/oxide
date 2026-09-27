@@ -1,0 +1,11 @@
+// want-error: cannot use value .*Value__Node.* as .*Value__.*New__Event__Text
+package consumer
+
+import (
+	oxide "github.com/csbxd/oxide/oxide-go/runtime"
+	f "oxide-type-api-conformance"
+)
+
+func wrong(ctx *oxide.Context, value f.Value__Node) {
+	f.New__Event__Text(ctx, value)
+}

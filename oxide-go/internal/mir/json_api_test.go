@@ -44,13 +44,13 @@ func TestRustJSONAPIConformance(t *testing.T) {
 	}
 	for _, arch := range []string{"amd64", "arm64"} {
 		t.Run(arch, func(t *testing.T) {
+			metadata := filepath.Join(cache, arch+".json")
 			stage, err := os.MkdirTemp(cache, "export-")
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer os.RemoveAll(stage)
 			pending := filepath.Join(stage, "oxide.mir.json")
-			metadata := filepath.Join(cache, arch+".json")
 			cmd := exec.Command(cargo, append(append([]string{"rustc"}, common...), "--target", targetTriple(arch), "--lib", "--", "--oxide-export="+pending)...)
 			cmd.Env = env
 			run(t, cmd)
@@ -68,6 +68,24 @@ func TestRustJSONAPIConformance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			for _, capability := range []struct {
+				declaration string
+				present     bool
+			}{
+				{"func (v Ref__EncodeOnly) JSON(", true},
+				{"func (v Ref__EncodeOnly) JSONValue(", true},
+				{"func FromJSON__EncodeOnly(", false},
+				{"func (v Ref__DecodeOnly) JSON(", false},
+				{"func (v Ref__DecodeOnly) JSONValue(", false},
+				{"func FromJSON__DecodeOnly(", true},
+				{"func (v Ref__Neither) JSON(", false},
+				{"func (v Ref__Neither) JSONValue(", false},
+				{"func FromJSON__Neither(", false},
+			} {
+				if strings.Contains(string(source), capability.declaration) != capability.present {
+					t.Fatalf("static JSON trait capability %s", capability.declaration)
+				}
+			}
 			dir := filepath.Join(cache, "go-"+arch)
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				t.Fatal(err)
@@ -80,6 +98,7 @@ func TestRustJSONAPIConformance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			allocations = []byte(strings.Replace(string(allocations), "package fixture", "package fixture_test", 1))
 			files := map[string][]byte{"go.mod": []byte(fmt.Sprintf("module oxide-json-conformance\n\ngo 1.27.1\nrequire github.com/csbxd/oxide/oxide-go v0.0.0\nreplace github.com/csbxd/oxide/oxide-go => %q\n", filepath.Join(root, "oxide-go"))), "oxide_gen_test.go": harness, "allocations_test.go": allocations, "expected.stdout": expected}
 			for name, data := range files {
 				if err := os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {

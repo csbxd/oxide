@@ -16,13 +16,13 @@ func publicDropTestProgram() *Program {
 	p := &Program{
 		Target: "aarch64-unknown-linux-gnu",
 		Types: []Type{
-			{ID: 1, Kind: "u64", Sized: true, Size: 8, Align: 8},
-			{ID: 2, Kind: "pointer", Sized: true, Size: 8, Align: 8, Pointee: 1},
-			{ID: 3, Kind: "aggregate", Sized: true, Align: 1},
-			{ID: 4, Kind: "pointer", Sized: true, Size: 8, Align: 8, Pointee: 5},
-			{ID: 5, Kind: "aggregate", Sized: true, Size: 64, Align: 64, Fields: []uint64{0}, VariantFieldTypes: [][]int{{2}}},
-			{ID: 6, Kind: "pointer", Sized: true, Size: 8, Align: 8, Pointee: 7},
-			{ID: 7, Kind: "aggregate", Sized: true, Size: 256 << 10, Align: 64, Fields: []uint64{0}, VariantFieldTypes: [][]int{{2}}},
+			{ID: 1, Name: "u64", Kind: "u64", Sized: true, Size: 8, Align: 8},
+			{ID: 2, Name: "*mut u64", Kind: "pointer", Sized: true, Size: 8, Align: 8, Pointee: 1},
+			{ID: 3, Name: "()", Kind: "aggregate", Sized: true, Align: 1},
+			{ID: 4, Name: "*mut Aligned", Kind: "pointer", Sized: true, Size: 8, Align: 8, Pointee: 5},
+			{ID: 5, Name: "Aligned", Kind: "aggregate", Sized: true, Size: 64, Align: 64, Fields: []uint64{0}, VariantFieldTypes: [][]int{{2}}},
+			{ID: 6, Name: "*mut Large", Kind: "pointer", Sized: true, Size: 8, Align: 8, Pointee: 7},
+			{ID: 7, Name: "Large", Kind: "aggregate", Sized: true, Size: 256 << 10, Align: 64, Fields: []uint64{0}, VariantFieldTypes: [][]int{{2}}},
 		},
 		PublicDropTypes: []PublicDropType{{Type: 5, Name: "demo::Aligned", Symbol: "small"}, {Type: 7, Name: "demo::Large", Symbol: "large"}},
 		PublicTypes:     []PublicType{{Name: "demo::Aligned", Type: 5}, {Name: "demo::Large", Type: 7}},
@@ -81,8 +81,8 @@ import("testing";"unsafe"; f "public-drop-test"; oxide "github.com/csbxd/oxide/o
 func TestDropStorage(t *testing.T) {
  ctx:=oxide.NewContext();defer ctx.Close()
  counter:=ctx.Alloc(8,8)
- small:=f.TypeAligned.Uninit(ctx); *(*uintptr)(unsafe.Pointer(small.Addr))=counter
- large:=f.TypeLarge.Uninit(ctx);*(*uintptr)(unsafe.Pointer(large.Addr))=counter
+ small:=f.New__Aligned(ctx); *(*uintptr)(unsafe.Pointer(small.Addr()))=counter
+ large:=f.New__Large(ctx);*(*uintptr)(unsafe.Pointer(large.Addr()))=counter
  mark:=ctx.Mark()
  requireNoGoAllocations(t,100,func(){
   *(*uint64)(unsafe.Pointer(counter))=0;small.Drop(ctx)

@@ -16,11 +16,12 @@ func TestLargeValueRootsAndConstructor(t *testing.T) {
 	p := &Program{
 		Target: "aarch64-unknown-linux-gnu",
 		Types: []Type{
-			{ID: 1, Kind: "u8", Sized: true, Size: 1, Align: 1},
-			{ID: 2, Kind: "array", Sized: true, Size: size, Align: 1, Element: 1, Length: size},
-			{ID: 3, Kind: "aggregate", Sized: true, Size: size, Align: 1, Fields: []uint64{0}, VariantFieldTypes: [][]int{{2}}},
+			{ID: 1, Name: "u8", Kind: "u8", Sized: true, Size: 1, Align: 1},
+			{ID: 2, Name: "[u8; 262144]", Kind: "array", Sized: true, Size: size, Align: 1, Element: 1, Length: size},
+			{ID: 3, Name: "demo::Wrapped", Kind: "aggregate", Sized: true, Size: size, Align: 1, Fields: []uint64{0}, VariantFieldTypes: [][]int{{2}}},
 		},
-		Roots: []Root{{Name: "mutate", Symbol: "mutate"}, {Name: "construct", Symbol: "construct"}},
+		PublicTypes: []PublicType{{Name: "demo::Buffer", Type: 2}, {Name: "demo::Wrapped", Type: 3}},
+		Roots:       []Root{{Name: "mutate", Symbol: "mutate"}, {Name: "construct", Symbol: "construct"}},
 		Functions: []Function{
 			{Symbol: "mutate", Name: "mutate", Body: &Body{ArgCount: 1, Locals: []Local{{Type: 2}, {Type: 2}}, Blocks: []Block{{
 				Statements: []Statement{
@@ -47,16 +48,16 @@ func TestLargeValueRootsAndConstructor(t *testing.T) {
 import("testing";"unsafe"; oxide "github.com/csbxd/oxide/oxide-go/runtime")
 func TestRoots(t *testing.T) {
  ctx:=oxide.NewContext();defer ctx.Close()
- input:=MutateTypes.Params[0].Uninit(ctx)
- bytes:=unsafe.Slice((*byte)(unsafe.Pointer(input.Addr)),256<<10)
+ input:=New__Buffer(ctx)
+ bytes:=unsafe.Slice((*byte)(unsafe.Pointer(input.Addr())),256<<10)
  for i:=range bytes {bytes[i]=byte(i+7)}
  mark:=ctx.Mark()
  check:=func(){
-  output:=Construct(ctx,input)
-  for i,b:=range unsafe.Slice((*byte)(unsafe.Pointer(output.Addr)),len(bytes)) {if b!=bytes[i]{t.Fatalf("constructor byte %d",i)}}
-  output=Mutate(ctx,input)
-  if bytes[0]!=7 || *(*byte)(unsafe.Pointer(output.Addr))!=99 {t.Fatal("by-value source changed")}
-  for i:=1;i<len(bytes);i++ {if *(*byte)(unsafe.Pointer(output.Addr+uintptr(i)))!=bytes[i]{t.Fatalf("return byte %d",i)}}
+  wrapped:=Construct(ctx,input)
+  for i,b:=range unsafe.Slice((*byte)(unsafe.Pointer(wrapped.Addr())),len(bytes)) {if b!=bytes[i]{t.Fatalf("constructor byte %d",i)}}
+  output:=Mutate(ctx,input)
+  if bytes[0]!=7 || *(*byte)(unsafe.Pointer(output.Addr()))!=99 {t.Fatal("by-value source changed")}
+  for i:=1;i<len(bytes);i++ {if *(*byte)(unsafe.Pointer(output.Addr()+uintptr(i)))!=bytes[i]{t.Fatalf("return byte %d",i)}}
   ctx.Restore(mark)
   if ctx.Mark()!=mark {t.Fatal("frame leaked")}
  }

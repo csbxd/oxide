@@ -2,9 +2,75 @@
 
 Snapshot: 2026-09-27. Targets: **linux/amd64 and linux/arm64**.
 
+## Static Go type API (M7)
+
+The current change removes `oxide.Type`, `oxide.Value`, runtime field / variant
+lookup and callback tables. Sized Rust types have nominal `Rust__Name` layouts
+and `Value__Name` owners; `Ref__Name` / `Mut__Name` provide typed views, including
+metadata-bearing views for unsized types. Private
+zero-sized markers reject both implicit misuse and explicit cross-type or
+borrow/owner conversions, with compile-time 8/16-byte handle size assertions.
+True Rust aliases retain one Go identity. Fields, enum payloads, containers,
+formatting, serde and iterator operations have concrete signatures and call
+compiler-selected Rust instances directly.
+
+| Gate | linux/arm64 | linux/amd64 |
+| --- | --- | --- |
+| Generic values / ownership / serde / replacement | 14 / 44 / 6 / 5 cases passed, 100 raw-zero calls per case | same 69 cases passed on native hardware |
+| Function-pointer callbacks | RustCall versus ordinary tuple ABI: 16 cases × 100 calls passed | native Rust and generated Go passed the same 16 cases |
+| External static type checking | one positive consumer and 17 negative consumers passed | the same 18 consumers passed |
+| Renderer source and default vet | fresh compiler export, 973 roots, 402 generated Go files; passed | fresh export, 973 roots, 405 Go files; compile/link and default vet passed |
+| Renderer API / allocations / ownership | all 74 native byte comparisons and 222 raw-zero allocation windows passed; Rust, libc, file-map and frame baselines restored | same 74 cases / 222 raw-zero windows and all three ledgers passed |
+| Renderer images / lifecycle | 72 inputs / 144 native SVG/PNG files; 8 owned returns / 24 raw windows; 18 exact-allocation windows; 4 chaos epochs / 48 calls passed | same complete image/lifecycle matrix passed |
+| CLI and documentation example | 20 process comparisons passed; tutorial SVG/PNG equal native bytes | same 20 process cases and native tutorial bytes passed |
+
+The 85 small cases on each architecture use raw `MemStats.Mallocs` and
+`TotalAlloc` deltas, not rounded averages. Independent zero-sized owners,
+packed and align-64 values, private DST tails, `Box<dyn Trait>`, 256 KiB moves,
+old-destructor panic, RHS mutation and real double-panic abort (134) remain
+covered. Additional generated tests verify heap-slot versus payload ownership,
+allocator mapping-failure rollback, niche wrap, signed/high-128-bit enum tags,
+non-exhaustive variants and void `Default` alias forwarding.
+
+A packed DST can have minimum alignment 1 but a vtable-required alignment 64.
+Its shared field accessor now checks the actual child alignment. A native Rust
+layout probe and a negative control that removes only this check demonstrate
+the failure. Function pointers require compiler-provided `fn_spread_arg`: `-1`
+for ordinary parameters or the final tuple index for RustCall. Missing metadata
+is rejected. Callbacks use named `ABI__Name` / `Callback__Name` aliases without
+embedding compiler IDs in client code. Scalar and reference boundaries avoid
+extra Context frames and temporary fat-pointer allocations.
+
+Final small-suite evidence: `.cache/static-final-gates/summary.json`.
+ARM renderer evidence: `.cache/static-api/renderer-api-arm64/validation-verified.json`
+and `.cache/static-api/arm64-final-results.json`. AMD evidence is
+`.cache/static-api/amd64-final/gate-results.json`; the combined record is
+`.cache/static-api/summary.json`. The final API suites take 5.732 / 18.832 s
+on arm64 / amd64; the combined image/lifecycle batches take 221.073 /
+633.178 s. API inventory mutation checks
+are in `.cache/static-api/api-coverage-negative.log`. The default `go test ./...`
+passes in `.cache/static-api/default-final-fresh.log`. The final renderer export
+contains no public function-pointer types; a fresh export confirms the new ABI
+metadata contract without relying on older interchange files. Final frontend
+SHA256 is `c10f6db630dafc9a45a30418f4a78a3e4fa1301ad28e4fd6626a61073aec6ac8`
+on arm64 and `368ac5749b75156e80eba6a145632b7a1e239037779e8f359300b62804afcb80`
+on amd64. MIR SHA256 is
+`fbf71d837ccb10dacab9a5aa4c82bc87c5ed11c79b903e9f9c6f2bd940337ba3` /
+`040285883f901f1d80870192afc5ae41238a9e4eeef4242676d5a7cd6e3d2b02`, respectively.
+
+Go cannot enforce linear ownership or all borrow lifetimes. Borrowed byte
+slices preserve the caller's Rust mutability obligations. Go layout values have
+at most alignment 8; typed storage uses the actual Rust alignment. Context
+storage models addressable automatic storage, without claiming identical
+physical native-stack placement or zero cold-start/Rust-heap allocation.
+The standard-library scope remains the tested subsets listed below. M7 repeats
+the direct-API and renderer acceptance with static interfaces and adds the
+callback ABI gate; it does not claim all Rust language or library support.
+Historical M6 evidence follows separately.
+
 ## Direct library API (M6)
 
-The renderer façade is removed from the translation input. Go
+Historical completed checkpoint: `e98931f`. The renderer façade is removed from the translation input. Go
 calls the original Cargo library with compiler-described `Type` / `Value`
 views and explicitly invokes Rust drop glue. The earlier 977-root acceptance
 below is the historical checkpoint at `8ae41df`, not evidence for the new graph.
@@ -133,7 +199,8 @@ compatibility fallback.
 | M3: dependency closure | full graph compiles, passes default vet and executes on arm64/amd64 | expand execution coverage for required OS/runtime boundaries |
 | M4: mermaid-rs-renderer | 72-case acceptance passed on both native targets with current large-value ABI | all 144 SVG/PNG files per target match native Rust; broader upstream API coverage remains open |
 | M5: renderer public library API | public export and acceptance matrix passed on both native targets | all 977 monomorphic upstream/test roots selected, 139 compiler drop types; 74 API, 20 CLI and 72-source regression cases; 44 dedicated ownership and eight direct renderer-return cases per target; individual derived/default methods and unbounded generic instantiations are not fully tested |
-| M6: direct Go use of Rust libraries | verified subset on both native targets | upstream manifest without façade; Go constructs/borrows/drops Rust values; complete renderer matrix and generic type/ownership/JSON/SIMD differential gates pass |
+| M7: static Go type API | verified subset on both native targets | concrete layout/view/owner types, 17 compile rejection cases, 85 differential cases, full renderer/API/CLI replay; no descriptor dispatch or compatibility API |
+| M6: direct Go use of Rust libraries | verified subset at `e98931f` on both native targets | upstream manifest without façade; Go constructs/borrows/drops Rust values; complete renderer matrix and generic type/ownership/JSON/SIMD differential gates pass |
 
 The M4 results describe the two-observer acceptance at commit `6989058`.
 M5 used a fixture that re-exported the upstream library and four test observers.

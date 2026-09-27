@@ -13,15 +13,11 @@ enums and explicit destruction. Unsupported constructs require a correct
 lowering or an explicit diagnostic. The renderer acceptance target cannot use
 handwritten Go implementations of Rust functionality.
 
-The generic type API passes native Rust comparisons on both targets, including
-manual ownership, dynamic layouts, Rust formatting and serde operations with
-exact warmed allocation checks. On both native targets, the direct renderer
-graph passes 72 inputs / 144 SVG and PNG files, 74 API probes, 20 CLI cases and
-ownership checks. Every API allocation window reports zero Go objects/bytes,
-with Rust, libc and file-mapping ownership restored. The preceding façade
-checkpoint is retained as historical evidence at `8ae41df`.
-[MILESTONES.md](MILESTONES.md) separates current evidence from that checkpoint
-and tracks support for each standard-library family.
+The static API passes both native targets: 85 small differential cases, 17
+compile-time rejection cases, 72 renderer inputs / 144 SVG and PNG files,
+74 API probes, 20 CLI cases and ownership checks. Warmed measurement windows
+report zero Go objects and bytes, with Rust/libc/file-mapping baselines restored.
+[MILESTONES.md](MILESTONES.md) records the tested subsets and remaining limits.
 
 ## Build and translate
 
@@ -62,12 +58,15 @@ default; `-overflow-checks=false` selects the unchecked Rust profile.
 
 ## Calling Rust from Go
 
-Primitive parameters/results use Go scalar types. Rust aggregates use
-`oxide.Value`, which points to stable Rust storage and its type descriptor.
-A Rust `&T` parameter accepts a view of `T`. String/path references accept
-`oxide.Span`; `Context.CopyString` and `CopyBytes` copy Go input into stable
-storage. Typed slices accept array, slice or Vec views with the correct element
-type.
+Primitive parameters/results use Go scalar types. Each Rust type also gets a
+nominal `Rust__Name` layout type with compiler-derived size and alignment
+constants. Its static API separates `Ref__Name` (shared borrow), `Mut__Name`
+(mutable place), and `Value__Name` (owner in stable Rust storage). Fields and
+methods have concrete Go signatures; there are no runtime type descriptors,
+string field lookups or callback tables. Genuine Rust aliases share Go identity;
+unrelated Rust types with the same layout do not. Zero-sized private markers
+also prevent explicit Go conversions between different types or borrow/owner
+roles. Thin handles remain 8 bytes and unsized views 16 bytes.
 
 For example, with the generated renderer imported as `renderer`:
 
@@ -77,89 +76,99 @@ defer ctx.Close()
 mark := ctx.Mark()
 defer ctx.Restore(mark)
 
-result := renderer.Render(ctx, ctx.CopyString("flowchart LR; A --> B"))
+source := renderer.Borrow__Str(ctx.CopyString("flowchart LR; A --> B"))
+result := renderer.Render(ctx, source)
 defer result.Drop(ctx)
-if result.Variant() == "Err" {
-    message := result.Field("0").Display(ctx)
+view := result.Ref()
+if view.Variant() == renderer.Variant__Core_Result_Result__Of__Alloc_String_String__And__Anyhow_Error__End__Err {
+    message := view.Field__Err__0().Display(ctx)
     defer message.Drop(ctx)
-    panic(message.StringCopy())
+    panic(strings.Clone(message.Ref().String()))
 }
-svg := result.Field("0").Bytes() // Borrow valid until result.Drop.
+svg := view.Field__Ok__0().Bytes() // Borrow valid until result.Drop.
 _, err := output.Write(svg)
 ```
 
-Every public function has signature metadata, for example
-`RenderTypes.Params` and `RenderTypes.Result`. Public named types have aliases
-such as `TypeRenderOptions`; `RustType(name)` resolves compiler names and
-public aliases. Callers do not embed type IDs or field offsets.
+Public aliases use their shortest exported path, then lexical order. Compound
+types encode their concrete arguments. The double-underscore namespaces keep
+layout types, views, factories and variant constants distinct from root
+functions. Private fields have no accessor. Missing trait implementations have
+no method, so an unsupported call fails during Go compilation.
 
 ```go
-options := renderer.TypeRenderOptions.Default(ctx)
-font := options.Field("theme").Field("font_family")
-font.Replace(ctx, font.Type.String(ctx, "sans-serif"))
-options.Field("layout").Field("node_spacing").SetFloat(60)
-result := renderer.RenderWithOptions(ctx, ctx.CopyString(source), options)
+options := renderer.Default__RenderOptions(ctx)
+font := options.Mut().Field__Theme().Field__FontFamily()
+font.Replace(ctx, renderer.String__Alloc_String_String(ctx, "sans-serif"))
+options.Mut().Field__Layout().Field__NodeSpacing().Set(60)
+result := renderer.RenderWithOptions(ctx, renderer.Borrow__Str(ctx.CopyString(source)), options)
 // RenderWithOptions consumed options. Only result is still owned here.
 result.Drop(ctx)
 ```
 
-The descriptors support:
+The generated operations include:
 
-- Named fields and enum variants, including compiler-provided direct and niche
-  tags. `Type.Enum` consumes initialized field values.
-- `Type.Uninit` for explicitly uninitialized storage, primitive setters,
-  `Value.Init` for moves and `Replace` with Rust assignment behavior: snapshot
-  the incoming value before dropping the old one, and install it even if that
-  destructor panics. Zero-sized owners can share an address and still receive
-  their own drops.
-- Owned Rust `String` and global-allocator `Vec` construction using actual
-  compiler header offsets. Vec starts at length zero: use `InitAt`, then
-  publish the initialized elements with `SetLen`.
-- Byte-preserving Linux `OsString` / `PathBuf` construction and borrowed
-  `OsStr` / `Path`, including non-UTF-8 filenames.
-- Actual Rust `Default`, `Display` and `Debug` implementations when the
-  compiler resolves them for the concrete type. Formatting returns an owned
-  Rust String which must also be dropped.
-- HashMap/BTreeMap `Iterator` and `IteratorMut`, backed by the actual Rust
-  iterator and `Iterator::next`. `Next` returns the real `Option<Item>`;
-  map items contain borrowed key/value references accessed with `Deref`.
-- `Value.JSON`, `JSONValue` and `Type.FromJSON` when the dependency graph contains
-  `serde_json` and the concrete type implements the required trait. They call
-  real serializers/deserializers and return owned Rust Results. `JSONValue`
-  invokes `to_value(&value)`, preserving its numeric conversion and object
-  ordering instead of going through an intermediate JSON string. Deserializing
-  borrowed types can retain references to the input Span; preserve its frame.
-- `Value.Drop(ctx)`, which calls compiler drop glue at the value's actual
-  address. Missing required destructors fail explicitly.
+- `New__Name` for uninitialized storage and `Default__Name` for actual Rust
+  defaults. Zero bits are not a general Rust default. Scalar places have typed
+  `Get` / `Set` methods; `Field__Name` and `Index` return concrete borrowed places.
+- `New__Enum__Variant` takes statically typed payloads and writes the compiler's
+  direct tag or niche. `Variant` returns a distinct Go tag type; variant field
+  access checks the active tag.
+- `Init` and `Move` transfer ownership. `Replace` saves the incoming value,
+  runs the previous Rust destructor, and installs the new bits even if that
+  destructor panics. Independent zero-sized owners still receive their drops.
+- `String__Name`, `Bytes__Name` and `Vec__Name` construct compiler-identified
+  global-allocator containers. Vec capacity starts uninitialized: call `InitAt`
+  and then `SetLen`. OS strings and paths preserve arbitrary Linux bytes.
+- Shared and mutable `Iter` methods call real Rust map iterators. The iterator's
+  `Mut().Next` returns its concrete Rust `Option<Item>`; borrowed tuple elements
+  expose typed `Deref` methods.
+- `Ref().Debug`, `Display`, `JSON` and `JSONValue`, plus `FromJSON__Name`, call
+  the actual compiler-resolved Rust implementations. Formatting and JSON return
+  owned Rust values. Deserialized borrows require the original input storage to
+  remain valid. `JSONValue` uses Rust `to_value`, including its float conversion
+  and object ordering.
+- `Value.Drop` calls rustc's destructor directly at the object's actual address.
+  Shared references have no `Drop`, scalar setter or owning conversion.
 
-`Value` is a view; copying it does not clone Rust ownership. By-value calls,
-`Init`, `Enum` and `Drop` consume the transferred ownership bits. Do not
-reuse or drop another copy afterwards. Field/index views borrow the owner.
-Go cannot enforce Rust borrow rules, reference lifetimes or initialized values.
-Zeroed bytes are not a general Rust default.
+Copying an owning Go handle does not clone Rust ownership. By-value calls,
+initialization, moves and destruction consume the ownership bits. Go checks
+nominal types and method sets, but cannot enforce linear ownership, reference
+lifetimes or all aliasing rules. `UnsafeRef__Name`, `UnsafeMut__Name` and
+`UnsafeValue__Name` are explicit entry points for externally managed storage.
+A zero-copy `Bytes()` or `Span().Bytes()` view obtained from a shared reference
+must not be written through; Go slices cannot express a read-only byte borrow.
+Raw pointer headers can be accessed through their stable address with explicit
+unsafe operations; `SetRef` does not construct null references.
+Packed fields can be read or moved through mutable places; creating a Rust
+reference to an unaligned place is rejected. `Callback__Name` and `ABI__Name`
+aliases describe exact translated function-pointer signatures for low-level Go
+callbacks, without exposing numeric compiler type IDs.
 
 ## Manual storage and lifetimes
 
 `Context` owns aligned automatic storage outside the moving Go stack.
-Public owned results retain their value slot; temporary reference headers are
-restored before returning. Drop all remaining owners before restoring their
-frame. `Context.Close` releases automatic storage and TLS state; it does not
-discover and destroy arbitrary Rust heap owners.
+An owned result retains exactly its result slot. Scalar and borrowed boundaries
+need no extra frame or temporary fat-pointer allocation. Drop remaining owners
+before restoring their frame. `Context.Close` releases automatic storage and
+TLS state; it does not discover arbitrary Rust heap owners.
 
 For a value that must outlive its Context frame, allocate its header separately:
 
 ```go
-saved := renderer.TypeTheme.HeapAlloc()
+saved := renderer.Alloc__Theme()
 mark := ctx.Mark()
-saved.Value.Init(renderer.Theme_Modern(ctx))
+saved.Init(renderer.Theme_Modern(ctx))
 ctx.Restore(mark)
-// saved still owns the Theme and its Rust allocations.
 saved.Close(ctx) // Rust Drop, then free the header even if Drop panics.
 ```
 
-`Storage.Free` frees only the allocation containing the value. `Value.Drop`
-destroys its Rust contents. Use `Storage.Close` when both are needed; field
-views deliberately have no Free method.
+`Storage__Name.Free` frees only the enclosing allocation. `Value__Name.Drop`
+destroys the Rust contents; `Storage__Name.Close` does both. Borrowed fields
+have no `Free` method. `Rust__Name` preserves Rust byte size and nominal identity;
+Go's native alignment is at most 8. Views and allocators enforce the actual
+`RustAlign__Name`, including alignment 16/64, without claiming that an ordinary
+Go layout value has that alignment. Unsized types have metadata-bearing views
+instead of a fabricated fixed-size Go layout.
 
 The compiler supplies size, alignment, field offsets, niches, metadata and
 internal value ABI classes. Rust type identity is separate from shared Go ABI

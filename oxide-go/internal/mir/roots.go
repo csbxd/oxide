@@ -140,14 +140,7 @@ func (g *generator) emitRoots() {
 	names := make([]string, len(roots))
 	used := map[string]string{}
 	typeNames := map[string]bool{}
-	reserved := map[string]bool{"RustType": true, "RustExit": true}
-	for _, t := range g.p.PublicTypes {
-		n, err := ExportName(t.Name)
-		if err != nil {
-			g.fail("%s", err)
-		}
-		reserved["Type"+n] = true
-	}
+	reserved := map[string]bool{"RustExit": true}
 	for _, t := range g.types {
 		if t.Sized && g.scalar(t) == "" {
 			typeNames[fmt.Sprintf("T%d", t.ID)] = true
@@ -164,15 +157,10 @@ func (g *generator) emitRoots() {
 		if typeNames[name] {
 			g.fail("public root %q exports %q, which is a generated Rust layout type", r.Name, name)
 		}
-		if reserved[name] || reserved[name+"Types"] {
+		if reserved[name] {
 			g.fail("public root %q collides with generated type API %s", r.Name, name)
 		}
 		used[name], names[i] = r.Name, name
-	}
-	for _, name := range names {
-		if previous, ok := used[name+"Types"]; ok {
-			g.fail("public root %q collides with signature metadata %sTypes", previous, name)
-		}
 	}
 	for i, r := range roots {
 		f := g.functions[r.Symbol]
@@ -193,11 +181,6 @@ func (g *generator) emitRoots() {
 		if f.Signature != nil && f.Signature.Variadic {
 			declarations = append(declarations, "variadic ...uintptr")
 		}
-		g.line("var %sTypes = struct{Params []*oxide.Type; Result *oxide.Type}{Params:[]*oxide.Type{", name)
-		for _, id := range params {
-			g.line("%s,", g.apiTypeExpr(id))
-		}
-		g.line("},Result:%s}", g.apiTypeExpr(ret))
 		g.line("// %s translates %s.", name, r.Name)
 		g.line("// By-value Rust owners are consumed. Drop owned results before restoring ctx.")
 		if f.TrackCaller {

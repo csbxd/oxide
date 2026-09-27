@@ -1,0 +1,8 @@
+// want-error: cannot use source .*Value__Node.* as .*Value__Document.*Init
+package consumer
+
+import f "oxide-type-api-conformance"
+
+func wrong(target f.Mut__Document, source f.Value__Node) {
+	target.Init(source)
+}

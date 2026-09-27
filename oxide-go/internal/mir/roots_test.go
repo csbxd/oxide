@@ -39,10 +39,10 @@ func rootTestProgram() *Program {
 	return &Program{
 		Target: "aarch64-unknown-linux-gnu",
 		Types: []Type{
-			{ID: 1, Kind: "u64", Sized: true, Size: 8, Align: 8},
-			{ID: 2, Kind: "pointer", Sized: true, Size: 8, Align: 8, Pointee: 1},
-			{ID: 3, Kind: "i64", Sized: true, Size: 8, Align: 8},
-			{ID: 4, Kind: "aggregate", Sized: true, Size: 0, Align: 1},
+			{ID: 1, Name: "u64", Kind: "u64", Sized: true, Size: 8, Align: 8},
+			{ID: 2, Name: "*const u64", Kind: "pointer", Sized: true, Size: 8, Align: 8, Pointee: 1},
+			{ID: 3, Name: "i64", Kind: "i64", Sized: true, Size: 8, Align: 8},
+			{ID: 4, Name: "()", Kind: "aggregate", Sized: true, Size: 0, Align: 1},
 		},
 		Functions: []Function{
 			{Symbol: "identity", Name: "demo::render", Body: &Body{ArgCount: 1, Locals: []Local{{Type: 1}, {Type: 1}}, Blocks: []Block{{Statements: []Statement{{Kind: json.RawMessage(`{"Assign":[{"local":0,"projection":[]},{"Use":[{"Copy":{"local":1,"projection":[]}}]}]}`)}}, Terminator: Statement{Kind: json.RawMessage(`"Return"`)}}}}},
@@ -76,12 +76,20 @@ func TestRootExportCollisionDiagnostics(t *testing.T) {
 	if _, err := Generate(p, "fixture"); err == nil || !strings.Contains(err.Error(), "generated Rust layout type") {
 		t.Fatalf("type collision: %v", err)
 	}
-	for _, name := range []string{"demo::rust_type", "demo::rust_exit", "demo::type_foo"} {
+	for _, name := range []string{"demo::rust_exit"} {
 		p := rootTestProgram()
 		p.PublicTypes = []PublicType{{Name: "demo::Foo", Type: 1}}
 		p.Roots = []Root{{Name: name, Symbol: "identity"}}
 		if _, err := Generate(p, "fixture"); err == nil || !strings.Contains(err.Error(), "generated type API") {
 			t.Fatalf("type API collision %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{"demo::rust_type", "demo::type_foo"} {
+		p := rootTestProgram()
+		p.PublicTypes = []PublicType{{Name: "demo::Foo", Type: 1}}
+		p.Roots = []Root{{Name: name, Symbol: "identity"}}
+		if _, err := Generate(p, "fixture"); err != nil {
+			t.Fatalf("removed dynamic API name is still reserved: %s: %v", name, err)
 		}
 	}
 }

@@ -1,4 +1,4 @@
-package fixture
+package fixture_test
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	oxide "github.com/csbxd/oxide/oxide-go/runtime"
+	. "oxide-type-api-conformance"
 )
 
 func TestDirectTypeAPI(t *testing.T) {
@@ -30,163 +31,186 @@ func TestDirectTypeAPI(t *testing.T) {
 	mark := ctx.Mark()
 	check := func() {
 		index := 0
-		debug := func(v oxide.Value) {
-			s := v.Debug(ctx)
-			if s.String() != want[index] {
-				t.Fatalf("case %d: got %q want %q", index, s.String(), want[index])
+		debug := func(text Value__Alloc_String_String) {
+			if text.Ref().String() != want[index] {
+				t.Fatalf("case %d: got %q want %q", index, text.Ref().String(), want[index])
 			}
 			index++
-			s.Drop(ctx)
+			text.Drop(ctx)
 		}
 		result := Make(ctx)
-		if result.Variant() != "Ok" {
+		if result.Ref().Variant() != Variant__Outcome__Ok {
 			t.Fatal("make failed")
 		}
-		debug(result.Field("0"))
+		debug(result.Ref().Field__Ok__0().Debug(ctx))
 		result.Drop(ctx)
-		doc := TypeDocument.Default(ctx)
-		str := doc.Field("title").Type
-		doc.Field("title").Replace(ctx, str.String(ctx, "直接调用 雪"))
-		vec := doc.Field("nodes").Type.Vec(ctx, 2)
-		node := TypeNode.Default(ctx)
-		node.Field("id").SetUint(7)
-		label := node.Field("label")
-		label.Replace(ctx, label.Type.Enum(ctx, "Some", str.String(ctx, "甲")))
-		vec.InitAt(0, node)
-		node = TypeNode.Default(ctx)
-		node.Field("id").SetUint(9)
-		vec.InitAt(1, node)
-		vec.SetLen(2)
-		doc.Field("nodes").Replace(ctx, vec)
-		if Nodes(ctx, doc.Field("nodes")) != 2 {
+
+		doc := Default__Document(ctx)
+		doc.Mut().Field__Title().Replace(ctx, String__Alloc_String_String(ctx, "直接调用 雪"))
+		vec := Vec__Alloc_Vec_Vec__Of__Node__End(ctx, 2)
+		node := Default__Node(ctx)
+		node.Mut().Field__Id().Set(7)
+		node.Mut().Field__Label().Replace(ctx, New__Core_Option_Option__Of__Alloc_String_String__End__Some(ctx, String__Alloc_String_String(ctx, "甲")))
+		vec.Mut().InitAt(0, node)
+		node = Default__Node(ctx)
+		node.Mut().Field__Id().Set(9)
+		vec.Mut().InitAt(1, node)
+		vec.Mut().SetLen(2)
+		doc.Mut().Field__Nodes().Replace(ctx, vec)
+		if Nodes(ctx, doc.Ref().Field__Nodes().Slice()) != 2 {
 			t.Fatal("slice argument")
 		}
-		outcome := doc.Field("outcome")
-		bytesType := outcome.Type.Variants[1].Fields[0].Type
-		bytes := bytesType.Bytes(ctx, []byte{0, 127, 255})
-		if Mutable(ctx, bytes) != 3 {
+		bytes := Bytes__Alloc_Vec_Vec__Of__U8__End(ctx, []byte{0, 127, 255})
+		if Mutable(ctx, bytes.Mut().Slice()) != 3 {
 			t.Fatal("mutable slice argument")
 		}
-		outcome.Replace(ctx, outcome.Type.Enum(ctx, "Err", bytes))
-		debug(doc)
-		// Heap-owned header survives restoring the Context which constructed it.
-		heap := TypeDocument.HeapAlloc()
-		heap.Value.Init(doc)
+		doc.Mut().Field__Outcome().Replace(ctx, New__Core_Result_Result__Of__Alloc_String_String__And__Alloc_Vec_Vec__Of__U8__End__End__Err(ctx, bytes))
+		debug(doc.Ref().Debug(ctx))
+		// Heap storage preserves both the Rust header and its owned contents
+		// after the Context frame used to construct it has been restored.
+		heap := Alloc__Document()
+		heap.Init(doc)
 		ctx.Restore(mark)
-		if heap.Field("title").String() != "直接调用 雪" {
+		if heap.Ref().Field__Title().String() != "直接调用 雪" {
 			t.Fatal("manual storage lifetime")
 		}
 		heap.Close(ctx)
-		for _, name := range [...]string{"Text", "Record", "Empty"} {
-			var event oxide.Value
-			switch name {
-			case "Text":
-				event = TypeEvent.Enum(ctx, name, str.String(ctx, "事件"))
-			case "Record":
-				event = TypeEvent.Enum(ctx, name, str.String(ctx, "点"), vec.Type.Vec(ctx, 0))
-			case "Empty":
-				event = TypeEvent.Enum(ctx, name)
+		for kind := 0; kind < 3; kind++ {
+			var event Value__Event
+			switch kind {
+			case 0:
+				event = New__Event__Text(ctx, String__Alloc_String_String(ctx, "事件"))
+			case 1:
+				event = New__Event__Record(ctx, String__Alloc_String_String(ctx, "点"), Vec__Alloc_Vec_Vec__Of__Node__End(ctx, 0))
+			case 2:
+				event = New__Event__Empty(ctx)
 			}
-			debug(event)
-			s := DebugEvent(ctx, event)
-			if s.String() != want[index-1] {
+			debug(event.Ref().Debug(ctx))
+			text := DebugEvent(ctx, event.Ref())
+			if text.Ref().String() != want[index-1] {
 				t.Fatal("generic Debug differs from native Rust expression")
 			}
-			s.Drop(ctx)
+			text.Drop(ctx)
 			event.Drop(ctx)
 		}
-		path := OwnedPathTypes.Params[0].Bytes(ctx, []byte{'a', 255, 'z'})
+		path := Bytes__Std_Path_PathBuf(ctx, []byte{'a', 255, 'z'})
 		osString := OwnedPath(ctx, path)
-		debug(osString)
-		span := osString.Span()
-		borrow := Path(ctx, span)
+		debug(osString.Ref().Debug(ctx))
+		borrow := Path(ctx, Borrow__Std_Path_Path(osString.Ref().Span()))
 		if string(borrow.Bytes()) != "a\xffz" {
 			t.Fatal("OS bytes lost")
 		}
 		osString.Drop(ctx)
-		aligned := TypeAligned.Default(ctx)
-		zst := aligned.Field("values").Type.Vec(ctx, 17)
-		if zst.Cap() != ^uintptr(0) {
+		aligned := Default__Aligned(ctx)
+		zst := Vec__Alloc_Vec_Vec__Of__Unit__End(ctx, 17)
+		if zst.Ref().Cap() != ^uintptr(0) {
 			t.Fatal("ZST capacity")
 		}
 		for i := uintptr(0); i < 17; i++ {
-			zst.InitAt(i, zst.Type.Container.Element.Uninit(ctx))
+			zst.Mut().InitAt(i, New__Unit(ctx))
 		}
-		zst.SetLen(17)
-		aligned.Field("values").Replace(ctx, zst)
-		if aligned.Addr%64 != 0 {
+		zst.Mut().SetLen(17)
+		aligned.Mut().Field__Values().Replace(ctx, zst)
+		if aligned.Addr()%64 != 0 {
 			t.Fatal("aligned return")
 		}
-		debug(aligned)
+		debug(aligned.Ref().Debug(ctx))
 		aligned.Drop(ctx)
-		private := TypePrivateOwner.Default(ctx)
-		debug(private)
+		private := Default__PrivateOwner(ctx)
+		debug(private.Ref().Debug(ctx))
 		private.Drop(ctx)
+
 		maps := MakeMaps(ctx)
-		for _, name := range [...]string{"hash", "tree"} {
-			collection := maps.Field(name)
-			iter := collection.IteratorMut(ctx)
+		// These iterators have different concrete Rust types; each path stays typed.
+		{
+			iter := maps.Mut().Field__Hash().Iter(ctx)
 			temporary := ctx.Mark()
-			next := iter.Next(ctx)
-			if next.Variant() != "Some" {
-				t.Fatal("empty Rust map iterator")
+			next := iter.Mut().Next(ctx)
+			if next.Ref().Variant().String() != "Some" {
+				t.Fatal("empty HashMap iterator")
 			}
-			pair := next.Field("0")
-			if pair.Field("0").Deref().String() != name {
-				t.Fatal("map key")
+			pair := next.Mut().Field__Some__0()
+			if pair.Field__0().Deref().String() != "hash" {
+				t.Fatal("HashMap key")
 			}
-			id := pair.Field("1").Deref().Field("id")
-			id.SetUint(id.Uint() + 10)
+			id := pair.Field__1().Deref().Field__Id()
+			id.Set(id.Get() + 10)
 			next.Drop(ctx)
 			ctx.Restore(temporary)
-			next = iter.Next(ctx)
-			if next.Variant() != "None" {
-				t.Fatal("map iterator termination")
+			next = iter.Mut().Next(ctx)
+			if next.Ref().Variant().String() != "None" {
+				t.Fatal("HashMap iterator termination")
 			}
 			next.Drop(ctx)
 			ctx.Restore(temporary)
 			iter.Drop(ctx)
-			read := collection.Iterator(ctx)
+			read := maps.Ref().Field__Hash().Iter(ctx)
 			temporary = ctx.Mark()
-			next = read.Next(ctx)
-			debug(next.Field("0").Field("1").Deref())
+			item := read.Mut().Next(ctx)
+			debug(item.Ref().Field__Some__0().Field__1().Deref().Debug(ctx))
+			item.Drop(ctx)
+			ctx.Restore(temporary)
+			read.Drop(ctx)
+		}
+		{
+			iter := maps.Mut().Field__Tree().Iter(ctx)
+			temporary := ctx.Mark()
+			next := iter.Mut().Next(ctx)
+			if next.Ref().Variant().String() != "Some" {
+				t.Fatal("empty BTreeMap iterator")
+			}
+			pair := next.Mut().Field__Some__0()
+			if pair.Field__0().Deref().String() != "tree" {
+				t.Fatal("BTreeMap key")
+			}
+			id := pair.Field__1().Deref().Field__Id()
+			id.Set(id.Get() + 10)
 			next.Drop(ctx)
+			ctx.Restore(temporary)
+			next = iter.Mut().Next(ctx)
+			if next.Ref().Variant().String() != "None" {
+				t.Fatal("BTreeMap iterator termination")
+			}
+			next.Drop(ctx)
+			ctx.Restore(temporary)
+			iter.Drop(ctx)
+			read := maps.Ref().Field__Tree().Iter(ctx)
+			temporary = ctx.Mark()
+			item := read.Mut().Next(ctx)
+			debug(item.Ref().Field__Some__0().Field__1().Deref().Debug(ctx))
+			item.Drop(ctx)
 			ctx.Restore(temporary)
 			read.Drop(ctx)
 		}
 		maps.Drop(ctx)
 		for _, layout := range dstLayout {
-			prototype := oxide.Value{Addr: TypePrivateTail.Align, Type: TypePrivateTail, Meta: layout[0]}
-			size, align := prototype.Size(), prototype.Align()
-			if size != layout[1] || align != layout[2] {
+			// Allocate from the native compiler's layout, then independently check the
+			// layout calculated by the generated static view of the private-tail DST.
+			address := ctx.Alloc(layout[1], layout[2])
+			clear(unsafe.Slice((*byte)(unsafe.Pointer(address)), layout[1]))
+			value := UnsafeMut__PrivateTail(address, layout[0])
+			if value.Size() != layout[1] || value.Align() != layout[2] {
 				t.Fatal("private DST compiler/native layout mismatch")
 			}
-			address := ctx.Alloc(size, align)
-			clear(unsafe.Slice((*byte)(unsafe.Pointer(address)), size))
-			value := oxide.Value{Addr: address, Type: TypePrivateTail, Meta: layout[0]}
-			value.Field("head").SetUint(uint64(layout[3]))
-			if !privateTailFieldRejected(value) {
-				t.Fatal("private DST field became accessible")
-			}
-			header := DstRefTypes.Params[0].Uninit(ctx)
-			header.SetRef(value)
-			if header.Deref() != value {
+			value.Field__Head().Set(uint8(layout[3]))
+			header := New__Ref__Of__PrivateTail__End(ctx)
+			header.Mut().SetRef(value.Ref())
+			if header.Ref().Deref() != value.Ref() {
 				t.Fatal("private DST SetRef/Deref lost metadata")
 			}
 			frame := ctx.Mark()
-			borrowed := DstRef(ctx, value)
-			if borrowed != value || borrowed.Size() != size || borrowed.Align() != align || borrowed.Field("head").Uint() != uint64(layout[3]) || ctx.Mark() != frame {
+			borrowed := DstRef(ctx, value.Ref())
+			if borrowed != value.Ref() || borrowed.Size() != layout[1] || borrowed.Align() != layout[2] || borrowed.Field__Head().Get() != uint8(layout[3]) || ctx.Mark() != frame {
 				t.Fatal("borrowed DST public root changed layout/address/frame")
 			}
-			raw := DstRawTypes.Params[0].Uninit(ctx)
-			raw.SetRef(value)
+			raw := New__MutPtr__Of__PrivateTail__End(ctx)
+			raw.Mut().SetRef(value)
 			frame = ctx.Mark()
-			resultType := DstRawTypes.Result
-			ctx.Alloc(resultType.Size, resultType.Align)
+			ctx.Alloc(raw.Size(), raw.Align())
 			retained := ctx.Mark()
 			ctx.Restore(frame)
 			returned := DstRaw(ctx, raw)
-			if returned.Deref() != value || ctx.Mark() != retained {
+			if returned.Mut().Deref() != value || ctx.Mark() != retained {
 				t.Fatal("raw DST public root changed metadata/storage")
 			}
 			returned.Drop(ctx)
@@ -195,31 +219,33 @@ func TestDirectTypeAPI(t *testing.T) {
 		}
 		for _, number := range [...]uint64{0, 37} {
 			frame := ctx.Mark()
-			resultType := MakeDebugTypes.Result
-			ctx.Alloc(resultType.Size, resultType.Align)
+			var signature Value__Anonymous__d4760e918d76b845
+			ctx.Alloc(signature.Size(), signature.Align())
 			retained := ctx.Mark()
 			ctx.Restore(frame)
 			owner := MakeDebug(ctx, number)
 			if ctx.Mark() != retained {
 				t.Fatal("dynamic factory retained temporary storage")
 			}
-			view := owner.Deref()
-			if view.Size() != TypeDebugValue.Size || view.Align() != TypeDebugValue.Align || view.Addr%view.Align() != 0 || view.Meta == 0 {
+			view := owner.Ref().Deref()
+			var concrete Value__DebugValue
+			if view.Size() != concrete.Size() || view.Align() != concrete.Align() || view.Addr()%view.Align() != 0 || view.Meta() == 0 {
 				t.Fatal("dynamic Box concrete layout")
 			}
 			frame = ctx.Mark()
 			if borrowed := DynRef(ctx, view); borrowed != view || ctx.Mark() != frame {
 				t.Fatal("shared dyn root changed data/vtable/frame")
 			}
-			if borrowed := DynMut(ctx, view); borrowed != view || ctx.Mark() != frame {
+			mutable := owner.Mut().Deref()
+			if borrowed := DynMut(ctx, mutable); borrowed != mutable || ctx.Mark() != frame {
 				t.Fatal("mutable dyn root changed data/vtable/frame")
 			}
-			header := DynRefTypes.Params[0].Uninit(ctx)
-			header.SetRef(view)
-			if header.Deref() != view {
+			header := New__Anonymous__cdc61395cbfd3306(ctx)
+			header.Mut().SetRef(view)
+			if header.Ref().Deref() != view {
 				t.Fatal("dyn SetRef/Deref lost vtable")
 			}
-			debug(view)
+			debug(view.Debug(ctx))
 			frame = ctx.Mark()
 			owner.Drop(ctx)
 			if ctx.Mark() != frame {
@@ -229,22 +255,22 @@ func TestDirectTypeAPI(t *testing.T) {
 		if index != len(want) {
 			t.Fatal("not every native TypeAPI case executed")
 		}
-		packed := TypePacked.Uninit(ctx)
-		packed.Field("byte").SetUint(31)
-		packed.Field("wide").SetUint(0x1122334455667788)
-		if packed.Field("wide").Uint() != 0x1122334455667788 || *(*byte)(unsafe.Pointer(packed.Addr + 1)) != 0x88 {
+		packed := New__Packed(ctx)
+		packed.Mut().Field__Byte().Set(31)
+		packed.Mut().Field__Wide().Set(0x1122334455667788)
+		if packed.Ref().Read__Wide() != 0x1122334455667788 || *(*byte)(unsafe.Pointer(packed.Addr() + 1)) != 0x88 {
 			t.Fatal("packed field offset")
 		}
-		if Text(ctx, ctx.CopyString("雪")) != 3 {
+		if Text(ctx, Borrow__Str(ctx.CopyString("雪"))) != 3 {
 			t.Fatal("str argument")
 		}
-		n := TypeWord.Uninit(ctx)
-		n.SetUint(18446744073709551615)
-		s := n.Display(ctx)
-		if s.String() != "18446744073709551615" {
+		n := New__Word(ctx)
+		n.Mut().Set(18446744073709551615)
+		text := n.Ref().Display(ctx)
+		if text.Ref().String() != "18446744073709551615" {
 			t.Fatal("Rust Display")
 		}
-		s.Drop(ctx)
+		text.Drop(ctx)
 		ctx.Restore(mark)
 	}
 	check()
@@ -258,12 +284,4 @@ func TestDirectTypeAPI(t *testing.T) {
 			t.Fatal("Rust owner leaked")
 		}
 	})
-}
-
-// One recovering defer avoids Go's savedOpenDeferState allocation, keeping the
-// access-control negative check inside the exact raw allocation measurement.
-func privateTailFieldRejected(value oxide.Value) (rejected bool) {
-	defer func() { rejected = recover() != nil }()
-	value.Field("tail")
-	return false
 }

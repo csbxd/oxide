@@ -1025,6 +1025,24 @@ impl<'tcx> Exporter<'tcx> {
                     .iter()
                     .map(|t| rustc_internal::stable(*t))
                     .collect();
+                // Keep logical parameters intact, but describe the compiler's
+                // RustCall ABI explicitly. fn_ptr_abi().conv normalizes it to
+                // Rust and cannot tell callback consumers to unpack the tuple.
+                let spread = if internal.fn_sig(self.tcx).abi() == rustc_abi::ExternAbi::RustCall {
+                    let index = inputs
+                        .len()
+                        .checked_sub(1)
+                        .ok_or("RustCall function pointer has no tuple parameter")?;
+                    if !matches!(inputs[index].kind(), TyKind::RigidTy(RigidTy::Tuple(_))) {
+                        return Err(
+                            "RustCall function pointer final parameter is not a tuple".into()
+                        );
+                    }
+                    index as i64
+                } else {
+                    -1
+                };
+                info["fn_spread_arg"] = json!(spread);
                 let output = rustc_internal::stable(sig.output());
                 info["fn_inputs"] = json!(inputs);
                 info["fn_output"] = json!(output);

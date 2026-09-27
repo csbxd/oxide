@@ -1,0 +1,11 @@
+// want-error: value.Drop undefined .*Ref__Document.*no field or method Drop
+package consumer
+
+import (
+	oxide "github.com/csbxd/oxide/oxide-go/runtime"
+	f "oxide-type-api-conformance"
+)
+
+func wrong(ctx *oxide.Context, value f.Ref__Document) {
+	value.Drop(ctx)
+}

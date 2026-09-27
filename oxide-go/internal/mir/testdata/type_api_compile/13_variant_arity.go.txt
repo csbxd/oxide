@@ -1,0 +1,11 @@
+// want-error: not enough arguments in call to f.New__Event__Text
+package consumer
+
+import (
+	oxide "github.com/csbxd/oxide/oxide-go/runtime"
+	f "oxide-type-api-conformance"
+)
+
+func wrong(ctx *oxide.Context) {
+	f.New__Event__Text(ctx)
+}

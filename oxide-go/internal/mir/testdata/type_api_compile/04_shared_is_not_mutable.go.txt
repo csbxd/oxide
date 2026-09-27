@@ -1,0 +1,8 @@
+// want-error: cannot use value.Ref\(\).*Ref__Node.* as .*Mut__Node.*return statement
+package consumer
+
+import f "oxide-type-api-conformance"
+
+func wrong(value f.Value__Node) f.Mut__Node {
+	return value.Ref()
+}

@@ -81,6 +81,7 @@ func testDirectTypeAPI(t *testing.T, p *mir.Program, expected []byte, root, cach
 	if err != nil {
 		t.Fatal(err)
 	}
+	allocations = []byte(strings.Replace(string(allocations), "package fixture", "package fixture_test", 1))
 	files := map[string][]byte{
 		"go.mod":            []byte(fmt.Sprintf("module oxide-type-api-conformance\n\ngo 1.27.1\nrequire github.com/csbxd/oxide/oxide-go v0.0.0\nreplace github.com/csbxd/oxide/oxide-go => %q\n", filepath.Join(root, "oxide-go"))),
 		"oxide_gen_test.go": harness, "allocations_test.go": allocations, "expected.stdout": expected,
@@ -105,6 +106,7 @@ func testDirectTypeAPI(t *testing.T, p *mir.Program, expected []byte, root, cach
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0", "GOWORK=off")
 	run(t, cmd)
+	testTypeAPICompile(t, dir, arch)
 	if arch == runtime.GOARCH {
 		cmd := exec.Command(binary, "-test.v", "-test.count=1")
 		cmd.Dir = dir

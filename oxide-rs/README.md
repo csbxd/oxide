@@ -106,6 +106,11 @@ Exported signatures describe MIR parameters; rustc's hidden caller-location
 ABI argument is recorded by `track_caller`, not added to the parameter list.
 `call_locations` records whether each call inherits that location or uses a
 compiler-generated static allocation, including MIR inlining scopes.
+Function pointers retain their logical `fn_inputs`. The mandatory
+`fn_spread_arg` is `-1` for an ordinary ABI, or the final tuple parameter index
+for rustc's RustCall ABI. Callback declarations expand only that marked tuple;
+an ordinary tuple parameter remains one argument. Missing ABI metadata is an
+error, since the lowered ABI name alone cannot distinguish RustCall from Rust.
 `runtime_checks` records rustc's actual UB, contract, and overflow check settings.
 Late-bound signature regions are erased by rustc before querying argument layouts; the exporter
 retains the full runtime signature and never guesses a layout from a lifetime.
@@ -126,7 +131,11 @@ rustc's resolver, including the shim for `#[track_caller]` functions.
 `call_untuple[bb]` records the final tuple argument's index when the call's
 actual Rust ABI is `RustCall`. Callee bodies retain rustc's `spread_arg` for
 reconstructing a tuple local at entry; ordinary tuple arguments are not
-flattened based on their shape.
+flattened based on their shape. Function-pointer types separately export
+`fn_spread_arg`: `-1` for ordinary signatures, or the final tuple index for
+RustCall. This comes from the compiler signature before the backend calling
+convention normalizes RustCall to Rust. Static Go callback aliases consume this
+required metadata; regenerate older exports rather than guessing a tuple ABI.
 `value_abi` records rustc's scalar, scalar-pair, vector, or aggregate backend
 representation. `abi_scalar` records the actual primitive for scalar layouts;
 `abi_pair` records both primitives and the second component's byte offset.

@@ -1,0 +1,31 @@
+package consumer
+
+import (
+	oxide "github.com/csbxd/oxide/oxide-go/runtime"
+	f "oxide-type-api-conformance"
+)
+
+func construct(ctx *oxide.Context) {
+	value := f.Default__Node(ctx)
+	var shared f.Ref__Node = value.Ref()
+	var mutable f.Mut__Node = value.Mut()
+	shared = mutable.Ref()
+	_ = shared.Addr()
+	_ = mutable.Addr()
+	mutable.Field__Id().Set(uint32(7))
+	var id uint32 = shared.Field__Id().Get()
+	_ = id
+	value.Drop(ctx)
+	var result f.Value__Outcome = f.Make(ctx)
+	result.Drop(ctx)
+	event := f.New__Event__Empty(ctx)
+	if event.Ref().Variant() != f.Variant__Event__Empty {
+		panic("wrong empty event")
+	}
+	event.Drop(ctx)
+}
+
+func borrowedEvent(ctx *oxide.Context, event f.Value__Event) {
+	text := f.DebugEvent(ctx, event.Ref())
+	text.Drop(ctx)
+}

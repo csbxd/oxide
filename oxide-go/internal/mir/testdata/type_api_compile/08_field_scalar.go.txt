@@ -1,0 +1,8 @@
+// want-error: cannot use number .*uint64.* as uint32.*Set
+package consumer
+
+import f "oxide-type-api-conformance"
+
+func wrong(value f.Mut__Node, number uint64) {
+	value.Field__Id().Set(number)
+}

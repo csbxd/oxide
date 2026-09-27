@@ -1,12 +1,25 @@
-package fixture
+package fixture_test
 
 import (
+	oxide "github.com/csbxd/oxide/oxide-go/runtime"
 	"os"
+	api "oxide-json-conformance"
 	"strings"
 	"testing"
-
-	oxide "github.com/csbxd/oxide/oxide-go/runtime"
 )
+
+// Check the concrete result slot without a descriptor or interface dispatch.
+func jsonResultFrame(t *testing.T, c *oxide.Context, entry oxide.Mark, size, align uintptr) {
+	t.Helper()
+	got := c.Mark()
+	c.Restore(entry)
+	c.Alloc(size, align)
+	want := c.Mark()
+	c.Restore(got)
+	if got != want {
+		t.Fatal("JSON operation retained temporary storage")
+	}
+}
 
 func TestJSONMatchesNativeRust(t *testing.T) {
 	data, err := os.ReadFile("expected.stdout")
@@ -21,55 +34,39 @@ func TestJSONMatchesNativeRust(t *testing.T) {
 	if len(floatWant) != 2 || floatWant[0] == floatWant[1] {
 		t.Fatal("native JSONValue oracle did not distinguish f32/field order")
 	}
-	if TypeEncodeOnly.JSON == nil || TypeEncodeOnly.JSONValue == nil || TypeEncodeOnly.FromJSON != nil || TypeDecodeOnly.JSON != nil || TypeDecodeOnly.JSONValue != nil || TypeDecodeOnly.FromJSON == nil || TypeNeither.JSON != nil || TypeNeither.JSONValue != nil || TypeNeither.FromJSON != nil {
-		t.Fatal("JSON capability did not follow the concrete Rust trait predicates")
-	}
 	c := oxide.NewContext()
 	defer c.Close()
 	beforeContext := oxide.HeapStats().LiveAllocations
-	packetInput := c.CopyString(want[0])
-	decodeInput := c.CopyString(`{"value":17}`)
-	borrowInput := c.CopyString(`"borrowed"`)
-	badInput := c.CopyString(`{"title":7}`)
+	packetInput := api.Borrow__Str(c.CopyString(want[0]))
+	decodeInput := api.Borrow__Str(c.CopyString(`{"value":17}`))
+	borrowInput := api.Borrow__Str(c.CopyString(`"borrowed"`))
+	badInput := api.Borrow__Str(c.CopyString(`{"title":7}`))
 	mark := c.Mark()
-	var resultTypes [6][3]*oxide.Type
-	// Result descriptors are learned once from real calls. Subsequent calls must
-	// retain exactly their result slot, including across temporary &str headers.
-	call := func(kind, slot int, invoke func() oxide.Value) oxide.Value {
-		entry := c.Mark()
-		wantMark := entry
-		if typ := resultTypes[kind][slot]; typ != nil {
-			c.Alloc(typ.Size, typ.Align)
-			wantMark = c.Mark()
-			c.Restore(entry)
-		}
-		value := invoke()
-		if typ := resultTypes[kind][slot]; typ == nil {
-			resultTypes[kind][slot] = value.Type
-		} else if value.Type != typ || c.Mark() != wantMark {
-			t.Fatal("JSON operation changed type or retained temporary storage")
-		}
-		return value
-	}
 	invoke := func(kind int) {
 		defer c.Restore(mark)
 		switch kind {
 		case 0:
-			decoded := call(0, 0, func() oxide.Value { return TypePacket.FromJSON(c, packetInput) })
-			if decoded.Variant() != "Ok" {
+			entry := c.Mark()
+			decoded := api.FromJSON__Packet(c, packetInput)
+			jsonResultFrame(t, c, entry, decoded.Size(), decoded.Align())
+			if decoded.Ref().Variant().String() != "Ok" {
 				t.Fatal("Packet JSON decode failed")
 			}
-			packet := decoded.Field("0")
-			if packet.Field("title").String() != "oxide 雪" || packet.Field("count").Uint128() != (oxide.U128{Lo: 3, Hi: 1 << 36}) || packet.Field("values").Len() != 3 || packet.Field("values").Index(0).Int() != -7 {
+			packet := decoded.Ref().Field__Ok__0()
+			if packet.Field__Title().String() != "oxide 雪" || packet.Field__Count().Get() != (oxide.U128{Lo: 3, Hi: 1 << 36}) || packet.Field__Values().Len() != 3 || packet.Field__Values().Index(0).Get() != -7 {
 				t.Fatal("deserialized Rust values changed")
 			}
-			materialized := call(0, 2, func() oxide.Value { return packet.Field("title").JSONValue(c) })
-			if materialized.Variant() != "Ok" || packet.Field("title").String() != "oxide 雪" {
+			entry = c.Mark()
+			materialized := packet.Field__Title().JSONValue(c)
+			jsonResultFrame(t, c, entry, materialized.Size(), materialized.Align())
+			if materialized.Ref().Variant().String() != "Ok" || packet.Field__Title().String() != "oxide 雪" {
 				t.Fatal("JSONValue consumed its owned source")
 			}
 			materialized.Drop(c)
-			encoded := call(0, 1, func() oxide.Value { return packet.JSON(c) })
-			if encoded.Variant() != "Ok" || encoded.Field("0").String() != want[0] {
+			entry = c.Mark()
+			encoded := packet.JSON(c)
+			jsonResultFrame(t, c, entry, encoded.Size(), encoded.Align())
+			if encoded.Ref().Variant().String() != "Ok" || encoded.Ref().Field__Ok__0().String() != want[0] {
 				t.Fatal("Packet JSON serialization differs from native Rust")
 			}
 			frame := c.Mark()
@@ -79,10 +76,12 @@ func TestJSONMatchesNativeRust(t *testing.T) {
 				t.Fatal("JSON drop leaked a frame")
 			}
 		case 1:
-			value := TypeEncodeOnly.Uninit(c)
-			value.Field("value").SetUint(91)
-			encoded := call(1, 0, func() oxide.Value { return value.JSON(c) })
-			if encoded.Variant() != "Ok" || encoded.Field("0").String() != want[1] {
+			value := api.New__EncodeOnly(c)
+			value.Mut().Field__Value().Set(91)
+			entry := c.Mark()
+			encoded := value.Ref().JSON(c)
+			jsonResultFrame(t, c, entry, encoded.Size(), encoded.Align())
+			if encoded.Ref().Variant().String() != "Ok" || encoded.Ref().Field__Ok__0().String() != want[1] {
 				t.Fatal("Serialize-only Rust type changed")
 			}
 			frame := c.Mark()
@@ -92,8 +91,10 @@ func TestJSONMatchesNativeRust(t *testing.T) {
 				t.Fatal("Serialize drop frame")
 			}
 		case 2:
-			decoded := call(2, 0, func() oxide.Value { return TypeDecodeOnly.FromJSON(c, decodeInput) })
-			if decoded.Variant() != "Ok" || decoded.Field("0").Field("value").Uint() != 17 || want[2] != "17" {
+			entry := c.Mark()
+			decoded := api.FromJSON__DecodeOnly(c, decodeInput)
+			jsonResultFrame(t, c, entry, decoded.Size(), decoded.Align())
+			if decoded.Ref().Variant().String() != "Ok" || decoded.Ref().Field__Ok__0().Field__Value().Get() != 17 || want[2] != "17" {
 				t.Fatal("Deserialize-only Rust type changed")
 			}
 			frame := c.Mark()
@@ -102,13 +103,15 @@ func TestJSONMatchesNativeRust(t *testing.T) {
 				t.Fatal("Deserialize drop frame")
 			}
 		case 3:
-			decoded := call(3, 0, func() oxide.Value { return TypeBorrowed.FromJSON(c, borrowInput) })
-			if decoded.Variant() != "Ok" {
+			entry := c.Mark()
+			decoded := api.FromJSON__Borrowed(c, borrowInput)
+			jsonResultFrame(t, c, entry, decoded.Size(), decoded.Align())
+			if decoded.Ref().Variant().String() != "Ok" {
 				t.Fatal("borrowed JSON decode failed")
 			}
-			borrowed := decoded.Field("0").Deref()
-			if borrowed.String() != want[3] || borrowed.Span().Data != borrowInput.Data+1 {
-				t.Fatal("deserializer lost its borrow into the original input")
+			borrowed := decoded.Ref().Field__Ok__0().Deref()
+			if borrowed.String() != want[3] || borrowed.Span().Data != borrowInput.Addr()+1 {
+				t.Fatal("deserializer lost its original-input borrow")
 			}
 			frame := c.Mark()
 			decoded.Drop(c)
@@ -116,12 +119,16 @@ func TestJSONMatchesNativeRust(t *testing.T) {
 				t.Fatal("borrowed decode drop frame")
 			}
 		case 4:
-			decoded := call(4, 0, func() oxide.Value { return TypePacket.FromJSON(c, badInput) })
-			if decoded.Variant() != "Err" {
+			entry := c.Mark()
+			decoded := api.FromJSON__Packet(c, badInput)
+			jsonResultFrame(t, c, entry, decoded.Size(), decoded.Align())
+			if decoded.Ref().Variant().String() != "Err" {
 				t.Fatal("invalid JSON accepted")
 			}
-			message := call(4, 1, func() oxide.Value { return decoded.Field("0").Display(c) })
-			if message.String() != want[4] {
+			entry = c.Mark()
+			message := decoded.Ref().Field__Err__0().Display(c)
+			jsonResultFrame(t, c, entry, message.Size(), message.Align())
+			if message.Ref().String() != want[4] {
 				t.Fatal("JSON error differs from native Rust")
 			}
 			frame := c.Mark()
@@ -131,20 +138,26 @@ func TestJSONMatchesNativeRust(t *testing.T) {
 				t.Fatal("JSON error drop frame")
 			}
 		case 5:
-			value := TypeFloatOrder.Uninit(c)
-			value.Field("z").SetFloat(0.1)
-			value.Field("a").SetUint(7)
-			direct := call(5, 0, func() oxide.Value { return value.JSON(c) })
-			materialized := call(5, 1, func() oxide.Value { return value.JSONValue(c) })
-			if direct.Variant() != "Ok" || materialized.Variant() != "Ok" {
+			value := api.New__FloatOrder(c)
+			value.Mut().Field__Z().Set(0.1)
+			value.Mut().Field__A().Set(7)
+			entry := c.Mark()
+			direct := value.Ref().JSON(c)
+			jsonResultFrame(t, c, entry, direct.Size(), direct.Align())
+			entry = c.Mark()
+			materialized := value.Ref().JSONValue(c)
+			jsonResultFrame(t, c, entry, materialized.Size(), materialized.Align())
+			if direct.Ref().Variant().String() != "Ok" || materialized.Ref().Variant().String() != "Ok" {
 				t.Fatal("FloatOrder serialization failed")
 			}
-			encoded := call(5, 2, func() oxide.Value { return materialized.Field("0").JSON(c) })
-			if encoded.Variant() != "Ok" || direct.Field("0").String() != floatWant[0] || encoded.Field("0").String() != floatWant[1] {
+			entry = c.Mark()
+			encoded := materialized.Ref().Field__Ok__0().JSON(c)
+			jsonResultFrame(t, c, entry, encoded.Size(), encoded.Align())
+			if encoded.Ref().Variant().String() != "Ok" || direct.Ref().Field__Ok__0().String() != floatWant[0] || encoded.Ref().Field__Ok__0().String() != floatWant[1] {
 				t.Fatal("JSONValue did not preserve native f32/field-order semantics")
 			}
-			if value.Field("z").Float() != float64(float32(0.1)) || value.Field("a").Uint() != 7 {
-				t.Fatal("JSONValue changed the borrowed source")
+			if value.Ref().Field__Z().Get() != float32(0.1) || value.Ref().Field__A().Get() != 7 {
+				t.Fatal("JSONValue changed its source")
 			}
 			frame := c.Mark()
 			encoded.Drop(c)
@@ -161,7 +174,6 @@ func TestJSONMatchesNativeRust(t *testing.T) {
 			t.Fatal("JSON operation escaped as a Rust panic")
 		}
 	}
-	// Warm each fixed path before the heap baseline; never adapt it to growth.
 	for kind := 0; kind < 6; kind++ {
 		invoke(kind)
 	}

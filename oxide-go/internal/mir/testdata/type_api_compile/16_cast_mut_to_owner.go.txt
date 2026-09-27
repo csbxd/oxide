@@ -1,0 +1,8 @@
+package consumer
+
+import f "oxide-type-api-conformance"
+
+// want-error: cannot convert .*Mut__Node.* to type .*Value__Node
+func invalid(value f.Mut__Node) {
+	_ = f.Value__Node(value)
+}
