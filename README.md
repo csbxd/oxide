@@ -200,7 +200,22 @@ python3 oxide-rs/tests/check.py
 python3 oxide-rs/tests/check_type_api.py
 python3 oxide-rs/tests/check_json_api.py
 python3 fixtures/renderer/test.py
+python3 fixtures/upstream/run.py check
 ```
+
+The [upstream Rust regression fixture](fixtures/upstream/README.md) integrates
+the pinned `coretests` and `alloctests`, including internal and auxiliary test
+targets. It reruns the host target's recorded successes and fails on any
+regression. `scan` measures additional cases; `promote` reruns every recorded
+success together with selected candidates, or the full inventory when no
+selection is supplied, before adding successes. The Go test entry is enabled by
+`OXIDE_RUST_TESTS=1`; direct `check` invocation is suitable for CI.
+
+The Linux arm64 baseline contains 2,507 independently verified cases:
+2,505 from `coretests` and both allocation-error auxiliary targets. All passed
+native Rust and generated Go, followed by an independent `check` rerun.
+The full 4,662-case inventory has been measured; main `alloctests` and its
+internal target currently encounter shared support-code blockers.
 
 Native references must execute on the same target as generated Go. Renderer
 tests compare complete SVG/PNG bytes, API results, CLI process behavior and

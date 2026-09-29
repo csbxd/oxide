@@ -1,0 +1,17 @@
+{
+  "dependencies": {
+    "rand": "0.9.5",
+    "rand_core": "0.9.5",
+    "rand_xorshift": "0.4.0"
+  },
+  "nightly": "2026-09-15",
+  "reference_commit": "55442bb720fd1450b4a386ba0fe218e3cc5f3bba",
+  "rust_commit": "574ff7d98bd6d037e5236a8453029173b32631fd",
+  "schema": 1,
+  "source_sha256": {
+    "Cargo.lock": "75848db58a70444bfb62c649b103d19c5d92fede325eb0c8c0e5442848448669",
+    "alloc": "466eafa315c2ef761686243f4a587f18268c6f82c8888f9d76f007d95a71ace0",
+    "alloctests": "fd83998ae6801bfe5b982a715c1dab48cbe6d0cbb26c46fd10befb67dc0e9594",
+    "coretests": "c14cc66592f1e4471374ece532640c1fca8cbbbeb6f4e36fa1f357a3a1a42b48"
+  }
+}

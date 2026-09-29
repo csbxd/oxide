@@ -1,0 +1,113 @@
+name: Upstream Rust tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  upstream-arm64:
+    name: Upstream Rust regression (linux/arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.27.1'
+          cache: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.13'
+
+      - name: Prevent passing baseline coverage from shrinking
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/upstream-ci"
+          baseline_path=fixtures/upstream/baseline-linux-arm64.json
+          test -f "$baseline_path"
+          if [[ "$BASE_REF" =~ ^0{40}$ ]]; then
+            printf '%s\n' 'Initial push has no previous commit; the current baseline will still be checked.' \
+              | tee "$RUNNER_TEMP/upstream-ci/baseline-history.log"
+            exit 0
+          fi
+          if [[ ! "$BASE_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            printf '%s\n' 'Invalid baseline comparison commit.' >&2
+            exit 1
+          fi
+          git cat-file -e "$BASE_REF^{commit}"
+          previous_entry="$(git ls-tree "$BASE_REF" -- "$baseline_path")"
+          if [[ -z "$previous_entry" ]]; then
+            printf '%s\n' 'The previous commit predates this baseline; initial creation is allowed.' \
+              | tee "$RUNNER_TEMP/upstream-ci/baseline-history.log"
+            exit 0
+          fi
+          git show "$BASE_REF:$baseline_path" > "$RUNNER_TEMP/upstream-ci/baseline-previous.json"
+          python3 fixtures/upstream/baseline.py \
+            "$RUNNER_TEMP/upstream-ci/baseline-previous.json" "$baseline_path" \
+            2>&1 | tee "$RUNNER_TEMP/upstream-ci/baseline-history.log"
+
+      - name: Test source instrumentation and regression gate
+        run: |
+          mkdir -p "$RUNNER_TEMP/upstream-ci"
+          python3 -m unittest discover -s fixtures/upstream -p 'test_*.py' -v \
+            2>&1 | tee "$RUNNER_TEMP/upstream-ci/python-tests.log"
+
+      - name: Build the pinned Rust frontend
+        run: |
+          ./oxide-rs/build.sh 2>&1 | tee "$RUNNER_TEMP/upstream-ci/frontend-build.log"
+
+      - name: Remove downloaded Rust archives after installation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          for archive in (Path.cwd() / ".cache").glob("*.tar.xz"):
+              if archive.is_file() and not archive.is_symlink():
+                  archive.unlink()
+          PY
+
+      - name: Test the Rust test adapter
+        run: |
+          upstream_sysroot="$(bin/oxide-rs --print-sysroot)"
+          RUSTC="$upstream_sysroot/bin/rustc" \
+          RUSTDOC="$upstream_sysroot/bin/rustdoc" \
+            "$upstream_sysroot/bin/cargo" test --locked \
+            --manifest-path fixtures/upstream/macros/Cargo.toml \
+            --target-dir .cache/upstream-macro-tests \
+            2>&1 | tee "$RUNNER_TEMP/upstream-ci/macros-tests.log"
+
+      - name: Rerun every recorded upstream success
+        run: |
+          python3 fixtures/upstream/run.py check \
+            2>&1 | tee "$RUNNER_TEMP/upstream-ci/check.log"
+
+      - name: Upload reports and diagnostic logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: upstream-tests-linux-arm64
+          retention-days: 14
+          if-no-files-found: warn
+          include-hidden-files: true
+          path: |
+            ${{ runner.temp }}/upstream-ci/*.log
+            .cache/upstream/arm64/latest.json
+            .cache/upstream/arm64/run-*/**/*.log
