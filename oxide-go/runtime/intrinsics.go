@@ -330,6 +330,7 @@ func AtomicUMax(p unsafe.Pointer, v uint64, size uintptr) uint64 {
 	return atomicMinMax(p, v, size, false, true)
 }
 func atomicMinMax(p unsafe.Pointer, v uint64, size uintptr, min, uns bool) uint64 {
+	v &= ^uint64(0) >> (64 - size*8)
 	for {
 		old := AtomicLoad(p, size)
 		var less bool
@@ -342,7 +343,7 @@ func atomicMinMax(p unsafe.Pointer, v uint64, size uintptr, min, uns bool) uint6
 			less = oa < va
 		}
 		replace := less
-		if !min {
+		if min {
 			replace = !less && old != v
 		}
 		next := old

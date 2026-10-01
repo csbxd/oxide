@@ -25,6 +25,37 @@ func (c *Context) libc() *libc.TLS {
 
 func LibcErrnoLocation(c *Context) uintptr { return libc.X__errno_location(c.libc()) }
 
+func LibcPrintf(c *Context, format uintptr, arguments ...uintptr) int32 {
+	mark := c.Mark()
+	defer c.Restore(mark)
+	args := c.Alloc(uintptr(len(arguments))*8, 8)
+	copy(unsafe.Slice((*uintptr)(unsafe.Pointer(args)), len(arguments)), arguments)
+	return libc.Xprintf(c.libc(), format, args)
+}
+
+func LibcSnprintf(c *Context, buffer, size, format uintptr, arguments ...uintptr) int32 {
+	mark := c.Mark()
+	defer c.Restore(mark)
+	args := c.Alloc(uintptr(len(arguments))*8, 8)
+	copy(unsafe.Slice((*uintptr)(unsafe.Pointer(args)), len(arguments)), arguments)
+	return libc.Xsnprintf(c.libc(), buffer, uint64(size), format, args)
+}
+
+func LibcAcosh(c *Context, x float64) float64   { return libc.Xacosh(c.libc(), x) }
+func LibcAcoshf(c *Context, x float32) float32  { return libc.Xacoshf(c.libc(), x) }
+func LibcAsinh(c *Context, x float64) float64   { return libc.Xasinh(c.libc(), x) }
+func LibcAsinhf(c *Context, x float32) float32  { return libc.Xasinhf(c.libc(), x) }
+func LibcTgamma(c *Context, x float64) float64  { return libc.Xtgamma(c.libc(), x) }
+func LibcTgammaf(c *Context, x float32) float32 { return libc.Xtgammaf(c.libc(), x) }
+func LibcCosh(c *Context, x float64) float64    { return libc.Xcosh(c.libc(), x) }
+func LibcCoshf(c *Context, x float32) float32   { return libc.Xcoshf(c.libc(), x) }
+func LibcLgammaR(c *Context, x float64, sign uintptr) float64 {
+	return libc.Xlgamma_r(c.libc(), x, sign)
+}
+func LibcLgammafR(c *Context, x float32, sign uintptr) float32 {
+	return libc.Xlgammaf_r(c.libc(), x, sign)
+}
+
 func LibcRead(c *Context, fd int32, buf, count uintptr) int64 {
 	return libc.Xread(c.libc(), fd, buf, uint64(count))
 }

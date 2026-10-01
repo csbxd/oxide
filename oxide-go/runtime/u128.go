@@ -120,10 +120,35 @@ func U128ByteSwap(a U128) U128 {
 	return U128{Lo: bits.ReverseBytes64(a.Hi), Hi: bits.ReverseBytes64(a.Lo)}
 }
 func I128ByteSwap(a I128) I128 { return I128(U128ByteSwap(U128(a))) }
-func U128Eq(a, b U128) bool    { return a == b }
-func U128Lt(a, b U128) bool    { return a.Hi < b.Hi || (a.Hi == b.Hi && a.Lo < b.Lo) }
-func U128Le(a, b U128) bool    { return a == b || U128Lt(a, b) }
-func I128Eq(a, b I128) bool    { return a == b }
+
+func U128LeadingZeros(a U128) uint32 {
+	if a.Hi != 0 {
+		return uint32(bits.LeadingZeros64(a.Hi))
+	}
+	return 64 + uint32(bits.LeadingZeros64(a.Lo))
+}
+
+func U128TrailingZeros(a U128) uint32 {
+	if a.Lo != 0 {
+		return uint32(bits.TrailingZeros64(a.Lo))
+	}
+	return 64 + uint32(bits.TrailingZeros64(a.Hi))
+}
+
+func U128OnesCount(a U128) uint32 {
+	return uint32(bits.OnesCount64(a.Lo) + bits.OnesCount64(a.Hi))
+}
+
+func U128RotateLeft(a U128, n uint32) U128 {
+	return U128Or(U128Shl(a, uint64(n)), U128Shr(a, uint64(0-n)))
+}
+
+func U128RotateRight(a U128, n uint32) U128 { return U128RotateLeft(a, 0-n) }
+
+func U128Eq(a, b U128) bool { return a == b }
+func U128Lt(a, b U128) bool { return a.Hi < b.Hi || (a.Hi == b.Hi && a.Lo < b.Lo) }
+func U128Le(a, b U128) bool { return a == b || U128Lt(a, b) }
+func I128Eq(a, b I128) bool { return a == b }
 func I128Lt(a, b I128) bool {
 	sa, sb := a.Hi>>63, b.Hi>>63
 	if sa != sb {

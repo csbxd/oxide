@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 type cFunction struct {
@@ -15,6 +16,16 @@ type cFunction struct {
 // The Rust declarations retain their own layouts. Conversions at this table
 // are limited to scalar C ABI values; aggregate ABIs need explicit lowering.
 var cFunctions = map[string]cFunction{
+	"acosh":            {"LibcAcosh", "float64", "float64"},
+	"acoshf":           {"LibcAcoshf", "float32", "float32"},
+	"asinh":            {"LibcAsinh", "float64", "float64"},
+	"asinhf":           {"LibcAsinhf", "float32", "float32"},
+	"cosh":             {"LibcCosh", "float64", "float64"},
+	"coshf":            {"LibcCoshf", "float32", "float32"},
+	"tgamma":           {"LibcTgamma", "float64", "float64"},
+	"tgammaf":          {"LibcTgammaf", "float32", "float32"},
+	"lgamma_r":         {"LibcLgammaR", "float64 uintptr", "float64"},
+	"lgammaf_r":        {"LibcLgammafR", "float32 uintptr", "float32"},
 	"__errno_location": {"LibcErrnoLocation", "", "uintptr"},
 	"strlen":           {"LibcStrlen", "uintptr", "uintptr"},
 	"read":             {"LibcRead", "int32 uintptr uintptr", "int64"},
@@ -180,7 +191,20 @@ func (g *generator) cRuntimeFunction(f *Function, params []int, ret int) bool {
 	if g.cVariadicFunction(f, params, ret) {
 		return true
 	}
-	mathFuncs := map[string]string{"acos": "Acos", "acosf": "Acos", "atan2": "Atan2", "atan2f": "Atan2", "hypot": "Hypot", "hypotf": "Hypot", "tan": "Tan", "tanf": "Tan"}
+	if (f.Symbol == "ldexp" || f.Symbol == "ldexpf") && !f.Signature.Variadic {
+		floating := "float64"
+		if f.Symbol == "ldexpf" {
+			floating = "float32"
+		}
+		if len(params) != 2 || !g.cScalar(params[0], floating) || !g.cScalar(params[1], "int32") || !g.cScalar(ret, floating) {
+			g.fail("C ldexp signature %s", f.Symbol)
+		}
+		// libc quiets signaling NaNs; math.Ldexp preserves their input bits.
+		g.line("if math.IsNaN(float64(v1)) { return %s(v1+v1) }; r:=%s(math.Ldexp(float64(v1),int(v2)))", g.goType(ret), g.goType(ret))
+		g.line("if v1!=0 && !math.IsInf(float64(v1),0) && (math.IsInf(float64(r),0) || r==0) { *(*int32)(unsafe.Pointer(oxide.LibcErrnoLocation(ctx)))=%d }; return r }", syscall.ERANGE)
+		return true
+	}
+	mathFuncs := map[string]string{"acos": "Acos", "acosf": "Acos", "atan2": "Atan2", "atan2f": "Atan2", "hypot": "Hypot", "hypotf": "Hypot", "tan": "Tan", "tanf": "Tan", "expm1": "Expm1", "expm1f": "Expm1", "log1p": "Log1p", "log1pf": "Log1p"}
 	if fn := mathFuncs[f.Symbol]; fn != "" && !f.Signature.Variadic {
 		n := 1
 		if fn == "Atan2" || fn == "Hypot" {
@@ -211,6 +235,8 @@ func (g *generator) cVariadicFunction(f *Function, params []int, ret int) bool {
 		return false
 	}
 	spec, ok := map[string]cFunction{
+		"printf":   {"LibcPrintf", "uintptr", "int32"},
+		"snprintf": {"LibcSnprintf", "uintptr uintptr uintptr", "int32"},
 		"open":     {"LibcOpen", "uintptr int32", "int32"},
 		"open64":   {"LibcOpen", "uintptr int32", "int32"},
 		"openat":   {"LibcOpenat", "int32 uintptr int32", "int32"},
@@ -232,7 +258,7 @@ func (g *generator) cVariadicFunction(f *Function, params []int, ret int) bool {
 		}
 		args = append(args, fmt.Sprintf("%s(v%d)", want[i], i+1))
 	}
-	if f.Symbol == "syscall" {
+	if f.Symbol == "syscall" || f.Symbol == "printf" || f.Symbol == "snprintf" {
 		args = append(args, "variadic...")
 	} else {
 		g.line("if len(variadic)>1 { panic(\"invalid C variadic argument count\") }; var argument uintptr; if len(variadic)==1 { argument=variadic[0] }")

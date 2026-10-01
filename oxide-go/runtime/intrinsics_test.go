@@ -89,6 +89,39 @@ func TestAtomicResultsAndNarrowStorage(t *testing.T) {
 	}
 }
 
+func TestAtomicMinMax(t *testing.T) {
+	for _, width := range []uintptr{1, 2, 4, 8} {
+		shift := 64 - width*8
+		mask := ^uint64(0) >> shift
+		sign := uint64(1) << (width*8 - 1)
+		values := []uint64{0, 1, sign - 1, sign, mask - 1, mask}
+		for _, old := range values {
+			for _, value := range values {
+				for _, tc := range []struct {
+					fn   func(unsafe.Pointer, uint64, uintptr) uint64
+					want uint64
+				}{
+					{AtomicUMin, min(old, value)}, {AtomicUMax, max(old, value)},
+					{AtomicMin, uint64(min(int64(old<<shift)>>shift, int64(value<<shift)>>shift)) & mask},
+					{AtomicMax, uint64(max(int64(old<<shift)>>shift, int64(value<<shift)>>shift)) & mask},
+				} {
+					// Exercise sign-extended arguments and guard every adjacent byte.
+					storage := [3]uint64{math.MaxUint64, math.MaxUint64, math.MaxUint64}
+					p := unsafe.Pointer(&storage[1])
+					AtomicStore(p, old, width)
+					arg := uint64(int64(value<<shift) >> shift)
+					if got := tc.fn(p, arg, width); got != old || AtomicLoad(p, width) != tc.want {
+						t.Fatalf("width %d, old %#x, arg %#x: returned %#x, stored %#x, want %#x", width, old, arg, got, AtomicLoad(p, width), tc.want)
+					}
+					if storage[0] != math.MaxUint64 || storage[2] != math.MaxUint64 || storage[1]&^mask != ^mask {
+						t.Fatalf("width %d overwrote adjacent storage", width)
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestBitReverseIntegerWidths(t *testing.T) {
 	checkBitReverse[int8](t)
 	checkBitReverse[uint8](t)
@@ -158,6 +191,10 @@ func TestIntrinsicRuntimeNoAllocs(t *testing.T) {
 		AtomicStore(p, 1, 8)
 		AtomicAdd(p, 1, 8)
 		AtomicCompareExchange(p, 2, 3, 8)
+		AtomicMin(p, 1, 8)
+		AtomicMax(p, 2, 8)
+		AtomicUMin(p, 1, 8)
+		AtomicUMax(p, 2, 8)
 		AtomicFence()
 		WriteBytes(p, 0, 8)
 	})

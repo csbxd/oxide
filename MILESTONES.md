@@ -1,6 +1,313 @@
 # Oxide translation milestones
 
-Snapshot: 2026-09-27. Targets: **linux/amd64 and linux/arm64**.
+Snapshot: 2026-10-01. Targets: **linux/amd64 and linux/arm64**.
+
+## Single-rounding f32 fused multiply-add (M16)
+
+The unchanged num::floats::mul_add::test_f32 case passes after adding the
+missing fmaf32 dispatch. FMA32 specializes the pinned Rust libm
+[fma_wide_round](https://github.com/rust-lang/compiler-builtins/blob/main/libm/src/math/generic/fma_wide.rs)
+algorithm to round-to-nearest f32. A float32 product is exact
+in float64; halfway sums use their discarded error before conversion to f32,
+avoiding double rounding. The source attribution and upstream license notices
+are retained in the runtime. The existing fmaf64 path remains math.FMA.
+
+The numeric differential fixture now verifies 116 cases x 109 inputs = 12,644
+records. New probes cover intrinsic calls over arbitrary bit patterns,
+halfway sums with tiny positive/negative addends, subnormal ties and cancellation
+of intermediate overflow. Native arm64 results, raw-zero warmed Go allocations
+and restored Context frames pass; both targets compile. Independent runtime
+tests compare 52,820 finite boundary/random triples with exact 1024-bit
+arithmetic, and check NaN/infinity/signed-zero combinations separately.
+Default Go and both-target compiler metadata checks pass.
+
+Full inventory promotion measured all 4,662 cases in 8,069.71 seconds:
+**4,472 passed**, 180 generation failures, one native assertion failure,
+seven native timeouts and two upstream ignored cases. No case is unselected.
+The baseline retains all 4,471 M15 successes and adds only the f32 FMA case;
+compiler/source/dependency/adapter context and discovery are unchanged.
+It contains 2,666 coretests, 1,478 main alloctests, 326 internal alloc cases
+and both auxiliary targets. Every passing case ran native Rust, fresh export,
+Go build and generated execution.
+
+All 180 generation failures were checked: 176 require f16/f128 ABI support
+and four require by-value unsized FnOnce support. The native f16 FMA assertion
+still returns 0x3000 instead of 0x3001; seven unoptimized native slice tests
+retain their extreme inputs and exceed the 30-second limit. These require
+broader features or changes outside translation and were left unchanged.
+There is no generated-Go execution failure or previous-baseline regression.
+Evidence: `.cache/upstream/arm64/fma32-full-report.json`,
+`.cache/upstream/arm64/fma32-before-report.json`,
+`.cache/upstream/arm64/fma32-scan-report.json` and `.cache/numeric-conformance/`.
+Native amd64 replay of these new cases remains unverified.
+
+## C variadic formatting and temporary argument storage (M15)
+
+The unchanged ptr::test_variadic_fnptr test passes after connecting real
+libc printf instead of rejecting its declaration. Printf and snprintf use
+the pinned modernc libc implementations; fixed C arguments retain validated
+scalar signatures, and promoted f64 varargs carry their original bits.
+Direct and indirect calls reuse the translated variadic function ABI.
+
+Fresh libc differential tests cover nine cases x three inputs = 27 records.
+New probes invoke actual formatting with signed integers, high u64 values,
+f64, strings and %n; check truncation, complete return counts and termination;
+and call snprintf/printf through variadic function pointers. An initial
+allocation check exposed one escaping Go argument array per indirect call.
+The emitter now snapshots those words in temporary Context storage and
+restores it with defer, including panic exits. All 27 comparisons and raw-zero
+warmed Go-allocation/frame windows pass. Both targets compile and arm64
+executes the native comparisons. Default Go and compiler metadata tests pass.
+
+Promotion reran every M14 success plus the pointer candidate: **all 4,471
+passed** native Rust and generated Go in 995.99 seconds, without failure or
+timeout. The baseline contains 2,665 coretests, 1,478 main alloctests, 326
+internal alloc cases and both auxiliary targets. Context, discovered IDs and
+every prior success are preserved; 189 cases were unselected and two remain
+ignored. Evidence: `.cache/upstream/arm64/printf-final-report.json`,
+`.cache/upstream/arm64/printf-scan-report.json` and `.cache/libc-conformance/`.
+Native amd64 replay of these new cases remains unverified.
+
+## Coroutine discriminants (M14)
+
+Three unchanged future::join upstream tests now pass native Rust and
+generated Go. Coroutine layouts already exported Rust's tag encoding and
+variant field offsets, but their discriminant values were missing. The exporter
+now queries the pinned compiler's CoroutineDef::discriminant_for_variant for
+every layout variant. State values and field layouts are not guessed; existing
+MIR polling, pinning, wake and drop operations are retained.
+
+The numeric differential fixture now covers 111 cases x 109 inputs = 12,099
+records. New manual-poll coroutine probes check immediate Ready, multiple
+Pending polls, nested awaits and cancellation while suspended. Native Drop
+traces distinguish completion (second then first guard) from cancellation
+(only the initialized first guard), and verify poll counts and borrowed capture
+storage. Raw-zero warmed Go allocations and restored Context frames pass.
+Both targets compile and arm64 executes native comparisons. These checks
+establish a polling/lifetime subset, not a general executor or native threading
+contract. Default Go and compiler metadata checks pass.
+
+Promotion reran all 4,467 M13 successes plus the three candidates: **all
+4,470 passed** native Rust and generated Go in 944.43 seconds, without failure
+or timeout. The baseline comprises 2,664 coretests, 1,478 alloctests, 326
+internal alloc cases and both auxiliary targets. Context, discovered IDs and
+all earlier successes are retained. The 190 unselected cases and two ignored
+cases remain outside the passing set. Evidence:
+`.cache/upstream/arm64/coroutine-tag-final-report.json`,
+`.cache/upstream/arm64/coroutine-tag-scan-report.json` and
+`.cache/numeric-conformance/`. Native amd64 execution of the new cases remains
+unverified.
+
+## SIMD negation and absolute value (M13)
+
+The unchanged coretests/simd::testing case now passes native Rust and
+generated Go. Two missing intrinsic entries, simd_neg and simd_fabs, reuse
+the existing vector snapshots and lane layout. Floating lanes flip or clear
+the sign bit, preserving signed zero, infinities, NaN payloads and signaling
+bits. Signed integer lanes use wrapping negation, including minimum values.
+Neither operation introduces heap storage or a function-specific wrapper.
+
+The numeric differential fixture now verifies 107 cases x 109 inputs =
+11,663 records, adding f32/f64 vector negation/absolute value and signed
+8/16/32/64-bit vector negation. Native arm64 results, raw-zero warmed Go
+allocations and restored Context frames pass; generated code compiles for
+both targets. Additional generated tests check aliased destinations and
+three-lane vectors with tail padding, including signaling NaN bit patterns.
+Those tests execute on arm64 and cross-compile for amd64. Default Go tests
+and both-target compiler metadata checks pass.
+
+Evidence: `.cache/upstream/arm64/simd-unary-scan-report.json`,
+`.cache/numeric-conformance/` and TestSIMDUnarySnapshotsAndPadding.
+Promotion reran all 4,466 M12 successes plus the candidate: **all 4,467
+passed** native Rust and generated Go in 947.42 seconds, without failure or
+timeout. The baseline contains 2,661 coretests, 1,478 alloctests, 326 internal
+alloc cases and both auxiliary targets. Context, discovery and all previous
+successes are retained; 193 cases were unselected and two remain ignored.
+The report is `.cache/upstream/arm64/simd-unary-final-report.json`.
+Native amd64 replay of this checkpoint remains unverified.
+
+## Auto-trait-only object metadata (M12)
+
+The pin_macro::unsize_coercion upstream case now passes native Rust and
+generated Go. The exporter previously requested a vtable only when a trait
+object had a principal trait. A dyn Send or dyn Send + Sync object has no
+principal, but still needs Rust's actual drop/size/alignment metadata. The
+exporter now asks rustc for the VTable with its optional principal intact;
+existing Go layout, borrowing and drop lowering are reused.
+
+The DST differential fixture now verifies thirteen cases x six inputs = 78
+records. New cases cover shared auto-trait borrows, aligned Box<dyn Send>,
+Box<dyn Send + Sync>, nested auto-trait DST tails, ordinary-trait to auto-trait
+upcasts, zero-sized Send/Sync borrows and actual vtable-driven destruction.
+Rust size/alignment 32/64 and exactly-once drops are checked. Both targets
+compile; arm64 executes native comparisons and raw-zero Go-allocation/frame
+checks. Default Go tests and both-target compiler metadata checks also pass.
+
+Promotion reran all 4,465 M11 successes plus this candidate: **all 4,466
+passed** native Rust and generated Go in 921.35 seconds, with no failure or
+timeout. The baseline comprises 2,660 coretests, 1,478 alloctests, 326 internal
+alloc cases and both auxiliary targets. Context, discovered IDs and all
+previous successes are retained; 194 unselected cases and two ignored cases
+are outside the passing set. Evidence:
+`.cache/upstream/arm64/auto-trait-final-report.json`,
+`.cache/upstream/arm64/auto-trait-scan-report.json` and
+`.cache/dst-conformance/`. Native amd64 execution of this checkpoint remains
+unverified.
+
+## C math entries and algebraic float operations (M11)
+
+A completed promotion passes **4,465 cases**, retaining all 4,453 M10
+successes and recovering twelve previously failing f32/f64 core tests: acosh,
+asinh, atanh, gamma, ln_gamma and to_algebraic. The C ABI table calls the
+pinned modernc libc implementations for acosh/asinh/cosh/tgamma/lgamma_r,
+including their f32 entry points. The reentrant log-gamma boundary passes
+the original signed-int output pointer directly. Existing log1p lowering
+also unblocks the atanh tests. No upstream test is modified.
+
+Algebraic add/subtract/multiply/divide/remainder reuse the existing typed
+scalar operations. Rust permits algebraic optimizations; this implementation
+chooses ordinary per-operation IEEE rounding without enabling reassociation
+or fusion. The generic numeric differential fixture now has 99 cases x 109
+inputs = 10,791 records, and checks all five operations at both precisions.
+Generated code compiles on amd64 and arm64; arm64 compares native Rust and
+checks raw-zero Go allocations and restored automatic storage.
+
+Runtime gamma probes verify both signs of zero, infinities, invalid integer
+arguments and fractional values. Reentrant f32/f64 calls independently check
+sign output and adjacent-byte guards. All ten C helpers have raw-zero warmed
+Go allocations and unchanged Context frames. `go test ./...`, fresh libc
+differential tests and both-target compiler metadata checks pass.
+
+All 4,465 cases pass fresh native Rust, MIR export, Go build and execution in
+877.02 seconds, with no failure or timeout. The passing set now comprises
+2,659 coretests, 1,478 alloctests, 326 internal alloc cases and both auxiliary
+targets. Context, discovery inventory and every earlier success are retained.
+The 195 unselected cases are outside this verified set; both ignored cases
+remain ignored. Evidence: `.cache/upstream/arm64/math-entry-final-report.json`,
+`.cache/upstream/arm64/math-entry-cosh-scan-report.json` and
+`.cache/numeric-conformance/`. Native amd64 replay of the new cases remains
+unverified.
+
+## Anonymous constant pooling (M10)
+
+The completed M10 passing baseline contains **4,453 cases**: 2,647 coretests,
+1,478 alloctests, 326 internal alloc cases and both auxiliary targets. A fresh
+promotion reran every M9 success and the three remaining alloc execution failures:
+`str::const_str_ptr`, `task::test_waker_will_wake_clone` and
+`task::test_local_waker_will_wake_clone`. The exporter follows rustc's
+pooling of fully initialized anonymous read-only allocations by their bytes
+and provenance, with the maximum required alignment. Named statics and
+mutable allocations retain separate identity. The generic allocator/runtime
+alias format is reused; there is no test-specific pointer substitution.
+
+All 4,453 passed native Rust and generated Go in 925.95 seconds, with no
+failure or timeout. Every earlier success, context field and discovered ID is
+preserved. The report marks 207 unselected cases as not_run and preserves two
+ignored cases; it does not reclassify the four M9 unsized-FnOnce emit failures.
+
+The numeric fixture now covers 89 cases x 109 inputs = 9,701 records. Native
+probes check pooled constant pointers, shared alignment 16, distinct identical
+named statics and independently writable mutable statics. Generated code for
+both targets compiles; arm64 executes native comparisons and raw-zero
+Go-allocation/frame checks. `go test ./...` and both-target compiler metadata
+checks also pass with the pooling implementation.
+Evidence: `.cache/upstream/arm64/constant-pool-probe-report.json`,
+`.cache/upstream/arm64/constant-pool-final-report.json` and
+`.cache/numeric-conformance/`. Native amd64 execution remains unverified.
+
+## Intrinsic runtime bodies and math entries (M9)
+
+A completed promotion verifies **4,450 passing cases**, preserving all 2,584
+M8 successes and adding 1,866 cases. It executes 68 additional `coretests`
+and all 1,808 main/internal alloc tests against native Rust and generated Go.
+The run took 1,344.49 seconds and reports 4,450 passed, four emit failures,
+three execution failures, 203 intentionally unselected core cases and two
+upstream ignored cases. Its report is
+`.cache/upstream/arm64/intrinsic-coverage-final-report.json`.
+Earlier interrupted measurement reports are diagnostic evidence only.
+
+| Suite | Passing cases |
+| --- | ---: |
+| coretests | 2,647 |
+| alloctests | 1,475 |
+| alloctests-internal | 326 |
+| allocation-error auxiliary targets | 2 |
+
+All alloc cases have measured outcomes after the allocator-alias and intrinsic
+repairs. The four emit failures involve unsized Box<dyn FnOnce> values in
+threaded Arc/linked-list tests and require broader lowering work. The three
+execution failures concern constant pointer identity and are addressed by M10.
+
+| Small repair | Additional verified core cases |
+| --- | ---: |
+| Runtime const_allocate/const_deallocate, using Rust's supplied MIR bodies | 2 |
+| Carryless multiplication, using Rust's supplied MIR bodies | 12 |
+| Funnel shifts, including zero shift and overflow panic, using Rust MIR | 20 |
+| NaN-propagating minimum/maximum, using Rust MIR | 4 |
+| float_to_int_unchecked for valid primitive inputs | 6 |
+| Missing truncf64 dispatch | 3 |
+| round_ties_even f32/f64 dispatch | 2 |
+| exp/exp2/log10 dispatch | 16 |
+| Fused f64 multiply-add, using math.FMA | 1 |
+| C ldexp/ldexpf signatures and scaling | 2 |
+
+The scalar math mappings preserve Rust's documented special values and
+unspecified transcendental precision; they do not claim bit-identical
+transcendental results from the native C math library. Expm1/log1p entries
+also restore the two measured Zipf sort cases. No upstream assertion or input
+size is changed. Required intrinsic bodies must be available from the pinned
+compiler; there is no guessed body or compiler-version compatibility path.
+
+The expanded numeric fixture verifies 85 cases x 109 inputs = 9,265 records,
+including signaling/quiet NaNs, signed zero, subnormals, half-way rounding,
+primitive conversion bounds, 8/16/32/64/128-bit funnel and polynomial
+operations, fused f64 arithmetic and C scaling at extreme integer exponents.
+The ldexp probes also compare errno after overflow/underflow and preserve
+an existing errno on non-error paths. Both targets compile; arm64 executes
+the native comparisons and raw-zero Go-allocation/frame checks. Current
+source fingerprints and successful exports are in `.cache/numeric-conformance/`.
+
+## Upstream standard-library regression repairs (M8)
+
+At the completed M8 checkpoint, the Linux arm64 baseline contained
+**2,584 passing cases**, up from
+2,507. A fresh `promote --select ... --jobs 4` ran every previous success and
+77 previously failing candidates through native Rust, fresh MIR export, Go
+compilation and Go execution. All 2,584 passed in 483.68 seconds, with no
+failures or timeouts. Compiler/source/dependency/adapter context and all 4,662
+discovered IDs are unchanged; no previous passing entry was removed.
+
+| Small repair | Recovered upstream cases |
+| --- | ---: |
+| Atomic min/max update direction and narrow signed argument truncation | 8 |
+| Boolean ordering (`false < true`) | 1 |
+| Guarded ZST pointer-distance paths: prevent Go compile-time division by zero | 9 |
+| 128-bit bit counts, rotations, min/max, exact division and wide shift operands | 53 |
+| Closure-to-function-pointer coercion: export rustc's FnOnce shim | 3 Unicode case-conversion tests |
+| Compiler-marked allocator declarations: normalize inline/re-exported alloc paths | 3 |
+
+The passing set comprises 2,579 `coretests`, two main `alloctests`, one
+`alloctests-internal` and both allocation-error auxiliary targets. The allocator
+alias blocker was resolved for the three selected alloc cases; the other 1,805
+main/internal alloc cases had not been rerun at that checkpoint. The report
+marks 2,076 unselected cases as `not_run` and preserves two ignored cases;
+this checkpoint does not establish a new full-inventory failure count.
+
+Validation also includes `go test ./...`, fresh Rust language/allocator/callback
+gates and both-target compiler metadata checks. The numeric differential
+fixture covers 48 cases × 109 inputs = 5,232 records, including bool ordering,
+128-bit boundaries and a noncapturing closure returning an array. Generated
+amd64 and arm64 code compiles; arm64 executes against native Rust and checks
+raw zero Go allocations/bytes over warmed calls. Runtime tests additionally
+check atomic old-value returns and adjacent bytes at all four widths, plus
+128-bit counts/rotations against `math/big`. These helpers need no heap storage.
+Native amd64 execution of these new upstream cases remains unverified.
+
+Evidence: `.cache/upstream/arm64/simple-fixes-report.json`,
+[passing baseline](fixtures/upstream/baseline-linux-arm64.json) and
+`.cache/numeric-conformance/`. The implementation changes general compiler
+metadata, lowering and runtime operations; upstream test bodies, assertions,
+input sizes and the fixture adapter are unchanged.
 
 ## Static Go type API (M7)
 
@@ -201,6 +508,15 @@ compatibility fallback.
 | M5: renderer public library API | public export and acceptance matrix passed on both native targets | all 977 monomorphic upstream/test roots selected, 139 compiler drop types; 74 API, 20 CLI and 72-source regression cases; 44 dedicated ownership and eight direct renderer-return cases per target; individual derived/default methods and unbounded generic instantiations are not fully tested |
 | M7: static Go type API | verified subset on both native targets | concrete layout/view/owner types, 17 compile rejection cases, 85 differential cases, full renderer/API/CLI replay; no descriptor dispatch or compatibility API |
 | M6: direct Go use of Rust libraries | verified subset at `e98931f` on both native targets | upstream manifest without façade; Go constructs/borrows/drops Rust values; complete renderer matrix and generic type/ownership/JSON/SIMD differential gates pass |
+| M8: pinned upstream standard-library regressions | 2,584 passing cases on native linux/arm64 | all 2,507 previous successes retained; 77 small-failure cases recovered; complete inventory and native amd64 execution remain open |
+| M9: intrinsic bodies and math entries | 4,450 passing cases on native linux/arm64 | all 1,808 alloc cases measured; 68 additional core cases and 1,798 additional alloc cases pass; four emit and three execution failures remain |
+| M10: anonymous constant pooling | 4,453 passing cases on native linux/arm64 | all 4,450 M9 successes retained; three pointer-identity failures recovered; shared alignment and independent static/mutable identity verified; 9,701 numeric records pass |
+| M11: C math and algebraic floating operations | 4,465 passing cases on native linux/arm64 | all 4,453 M10 successes retained; twelve failures recovered; actual libc math entries, reentrant sign-pointer guards, 10,791 numeric records and raw-zero helper allocations pass |
+| M12: auto-trait-only objects | 4,466 passing cases on native linux/arm64 | all 4,465 M11 successes retained; auto-trait-only unsizing restored; 78 DST records, aligned/nested/ZST metadata and Box destruction verified |
+| M13: SIMD unary operations | 4,467 passing cases on native linux/arm64 | all 4,466 M12 successes retained; SIMD neg/fabs restored; bit patterns, integer minimum values, aliasing/padding and 11,663 numeric records verified |
+| M14: Coroutine discriminants | 4,470 passing cases on native linux/arm64 | all 4,467 M13 successes retained; three join failures restored; compiler-derived state tags, nested await, pending cancellation and 12,099 differential records verified |
+| M15: C variadic formatting | 4,471 passing cases on native linux/arm64 | all 4,470 M14 successes retained; real printf/snprintf variadic calls, 27 libc records and raw-zero indirect argument storage verified |
+| M16: single-rounding f32 FMA | 4,472 passing cases on native linux/arm64 | all 4,471 M15 successes retained; complete 4,662-case audit; f32 FMA restored; 12,644 numeric records and 52,820 exact finite comparisons verified; 180 generation failures, eight native issues and two ignored cases remain |
 
 The M4 results describe the two-observer acceptance at commit `6989058`.
 M5 used a fixture that re-exported the upstream library and four test observers.
@@ -244,7 +560,7 @@ blanket implementations and all generic instantiations are not a finite root set
 | --- | --- | --- |
 | fixed-width integers, bool, char, usize/isize | verified subset | differential arithmetic and bit-pattern tests; not every intrinsic |
 | i128/u128 | verified subset | casts, unary/bitwise ops, checked multiplication, masked shifts, comparisons, switches, signed/unsigned division/remainder and carrying multiplication; numeric fixture compares native results |
-| floating point | verified subset | f32/f64 ↔ i128/u128, saturation, NaN/infinity, boundary rounding and integer-to-f32 double-rounding; ordinary scalar/SIMD operations explicitly round per MIR operation to prevent unintended Go fusion, with native f32/f64 counterexamples including signed zero; general IEEE/math conformance remains open |
+| floating point | verified subset | f32/f64 ↔ i128/u128, saturation, NaN/infinity, boundary rounding and integer-to-f32 double-rounding; f32/f64 FMA uses single rounding; ordinary scalar/SIMD operations explicitly round per MIR operation to prevent unintended Go fusion, with native f32/f64 counterexamples including signed zero; f16/f128 ABI and general IEEE/math conformance remain open |
 | repr(Rust), repr(C), packed, aligned structs | verified subset | compiler offsets, packed unaligned access and actual 64-byte-aligned addressable locals |
 | zero-sized values | verified subset | reads/stores do not touch Rust dangling addresses; address-taking is preserved; real zero-sized boxed hook closure succeeds |
 | arrays and subslices | verified subset | element stride, pointer arithmetic, array pattern subslices and transmute use the projected array size |
@@ -259,7 +575,7 @@ blanket implementations and all generic instantiations are not a finite root set
 | Rust heap allocator | verified subset | pinned modernc memory algorithm with off-heap page registry; alignment, zeroing, realloc grow/shrink/content and failure preservation; raw cold-allocation tests, updated fixtures and renderer exact counters pass on both targets |
 | panic/unwind | verified subset | actual Rust-owned payloads, catch_unwind, u64 downcast, overflow catches, hook payload/location counts and dynamic drops match native Rust; double-panic, foreign exception and cross-thread behavior remain unverified |
 | caller locations | verified subset | compiler callsite allocations, inherited and inlined scopes, direct track_caller line/column propagation; actual compiler reification shims are exported, with broader indirect-call execution still pending |
-| async/coroutines | unsupported | state-machine/executor contract not implemented |
+| async/coroutines | verified manual-poll subset on arm64 | compiler discriminants/variant offsets and actual lowered MIR; three join tests plus completion/nested-await/cancellation Drop probes pass; general executor and native threading contracts remain unverified |
 | SIMD | partial | compiler vector layouts and required lane operations lower; integer pack, multiply/add, shuffle, shift and carryless multiply helpers have unit tests; actual SSE compare/min/max/conversion/reciprocal helpers pass native amd64 tests; comprehensive SIMD semantics remain unverified |
 | inline assembly | explicit templates only | complete stdarch CPUID template with checked operands/options invokes actual CPUID on amd64; fully parsed comment-only same-place identity in/out invokes a compiler barrier; unknown templates fail compilation |
 | volatile memory accesses | unsupported | rejected explicitly |
@@ -272,20 +588,23 @@ not evidence that an entire module is supported.
 | Library/API family | Status | Tested subset / remaining boundary |
 | --- | --- | --- |
 | `core::mem` | verified subset | size_of, align_of, offset_of, equal-size transmute; size_of_val/align_of_val for aligned/nested/packed DSTs and packed ManuallyDrop tails; broader MaybeUninit/ManuallyDrop cases pending |
-| `core::ptr` | verified subset | address-of, read/write, add, read_unaligned/write_unaligned and pointer/integer casts; volatile unsupported |
-| `core::num` / primitive integer methods | verified subset | wrapping operations, rotations, nonzero niches, 128-bit division/remainder/casts, signed/unsigned carrying_mul_add at 8/16/32/64/128 bits and disjoint_bitor |
+| `core::ptr` | verified subset | address-of, read/write, add, read_unaligned/write_unaligned and pointer/integer casts; guarded ZST pointer-distance paths compile and preserve Rust's checks; volatile unsupported |
+| `core::num` / primitive integer methods | verified subset | wrapping operations, nonzero niches, 128-bit bit counts/rotations/min/max/exact division/remainder/casts and wide shift operands, signed/unsigned carrying_mul_add at 8/16/32/64/128 bits and disjoint_bitor |
+| `core::f32`, `core::f64` | verified numeric subset | fused multiply-add, integer conversions, explicit per-operation rounding and selected math entries; f32 FMA halfway/subnormal/overflow cases pass native arm64 differential and exact-arithmetic checks; f16/f128 ABI remains unsupported |
+| `core::char` / `core::unicode` | verified upstream subset on arm64 | to_lowercase, to_uppercase and to_casefold tests pass unchanged, including full Unicode input traversal; broader API support is limited to the passing baseline |
 | `core::option` | verified subset | NonZeroU64/U128 representation and match; Go named-variant construction and String ownership use actual compiler tags/niches; complete Option API not claimed |
 | `core::result` | verified subset | catch results and dropping Err<Box<dyn Any + Send>> execute with native-equivalent payload destruction; direct Go Results preserve nested owners, borrowed results and serde errors; broader Result API coverage pending |
 | `core::array`, `slice`, `str` | partial | array and slice storage/projections; broad iterator/UTF-8 suites pending |
-| `core::ops`, `marker`, `convert`, `clone`, `cmp` | partial | rustc resolves concrete instances; fixture-used operations only |
+| `core::ops`, `marker`, `convert`, `clone`, `cmp` | partial | rustc resolves concrete instances; bool ordering and 128-bit shift-operator cases pass the arm64 upstream gate; complete API coverage remains open |
 | `core::fmt`, `core::error`, `core::any` | verified subset | HRTB/dyn metadata, TypeId equality, mixed string/u64 formatting callbacks and dynamic payload downcasts; generic Go Debug/Display execute compiler-resolved Rust formatting, including Box<dyn Debug>; complete formatting/error APIs remain unverified |
-| `core::cell`, `pin`, `borrow`, `iter` | unverified | translated when reachable, no complete API acceptance suite |
-| `core::sync::atomic` | verified single-thread subset | AtomicUsize hook/drop counters and relaxed load/store/fetch operations; memory-order and multithreaded conformance pending |
+| `core::cell`, `pin`, `iter` | verified upstream subset on arm64 | the passing baseline includes 39 cell, seven pin/pin_macro and 289 iterator cases; complete APIs and native amd64 replay remain unverified |
+| `core::borrow` / `alloc::borrow` | verified alloc-test subset on arm64 | six borrow and five cow_str cases pass; complete borrowing/lifetime API coverage is not claimed |
+| `core::sync::atomic` | verified single-thread subset | AtomicUsize hook/drop counters and relaxed load/store/fetch operations; eight upstream signed/unsigned min/max cases pass on arm64, with runtime boundary/old-value/adjacent-byte checks at 1/2/4/8-byte widths; memory-order and multithreaded conformance pending |
 | `core::arch` / CPU feature detection | verified runtime subset | actual CPUID/XGETBV and required SSE/AVX helpers pass on native amd64 hardware; Rust feature checks remain reachable, no hardcoded CPU capabilities; the complete translated renderer is checked separately |
-| `alloc::alloc` | verified subset | allocator primitives and fresh Rust allocation call chains; transparent Alignment/NonNull ABI parameters |
+| `alloc::alloc` | verified subset | allocator primitives and fresh Rust allocation call chains; transparent Alignment/NonNull ABI parameters; compiler-marked allocator declarations survive inline/re-exported paths, with three main/internal alloc cases passing on arm64 |
 | `alloc::boxed`, `vec`, `string` | verified subset | Box creation/drop, Vec growth/push/reverse, String creation/push_str/drop; direct Go String/Vec construction, moves, field replacement, Box dereference, manual header allocation/free and in-place Rust Drop; both-target 14-case type API and 44-case ownership gates retain raw zero Go allocations |
-| `alloc::collections` | renderer-exercised subset | BTree and VecDeque paths participate in matching renderer outputs; dedicated collection/API and drop tests remain open |
-| `alloc::rc` | unverified | no dedicated Rc/Weak ownership tests |
+| `alloc::collections` | verified upstream subset on arm64 | 262 internal collection cases, 41 main collection cases, 116 VecDeque and 438 sort cases pass; the linked-list threaded send test remains blocked by unsized FnOnce lowering |
+| `alloc::rc` | verified upstream subset on arm64 | 65 Rc/Weak cases pass; LocalWaker constant identity is checked separately by M10 |
 | `alloc::sync` | verified Arc subset | payloads with 32/64-byte alignment, clone/drop and nested DSTs pass the 42-case fixture on both targets; weak-reference and concurrency coverage remains open |
 | `std::collections` | verified iterator / renderer subset | actual HashMap/BTreeMap iter/iter_mut/Iterator::next exposed to Go, including mutation through borrowed entries; original Rust HashMap/HashSet, BinaryHeap and VecDeque paths contribute to matching outputs; complete ordering/hash/API conformance remains open |
 | `std::fmt`, `error`, `any`, `panic` | verified subset | 28 native differential cases cover custom hooks, panic_any, catch_unwind/downcast, overflow panic and mixed format! output; complete error/formatting APIs and double-panic paths remain open |
@@ -296,7 +615,7 @@ not evidence that an entire module is supported.
 | `std::backtrace` / ELF loader boundary | partial | CGO-disabled static ELF main executable/vDSO enumeration; dynamic `PT_INTERP` explicitly rejected. Real Go PC/SP backtraces follow Go stack movement; Rust source symbol/line mapping is not implemented |
 | `std::process` | verified exit subset on both targets | native/Go exit codes, buffered stdout cleanup and C++ TLS destruction match; stack Drop and pthread-key destructors are not run by process exit; process spawning, pipes, signals and broad process APIs remain unverified |
 | `std::net` | unsupported | no complete OS boundary |
-| `std::future`, `task`, async | unsupported | no executor/coroutine acceptance |
+| `std::future`, `task`, async | verified polling subset on arm64 | three join cases and manual Pending/Ready/cancellation lifetime probes pass; no general executor acceptance or native multithreaded scheduling guarantee |
 | re-exported core/alloc modules in std | same limits | no separate implementation or compatibility shim |
 
 ## Historical renderer checkpoints (M4/M5)

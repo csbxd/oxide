@@ -211,11 +211,17 @@ success together with selected candidates, or the full inventory when no
 selection is supplied, before adding successes. The Go test entry is enabled by
 `OXIDE_RUST_TESTS=1`; direct `check` invocation is suitable for CI.
 
-The Linux arm64 baseline contains 2,507 independently verified cases:
-2,505 from `coretests` and both allocation-error auxiliary targets. All passed
-native Rust and generated Go, followed by an independent `check` rerun.
-The full 4,662-case inventory has been measured; main `alloctests` and its
-internal target currently encounter shared support-code blockers.
+The Linux arm64 baseline contains 4,472 independently verified cases:
+2,666 `coretests`, 1,478 main `alloctests`, 326 internal alloc cases and both
+allocation-error auxiliary targets. The complete M16 run measures all 4,662
+cases and retains every prior success. It restores f32 fused multiply-add
+with single rounding, verified by exact arithmetic and native Rust comparisons.
+The remaining outcomes are 176 unsupported f16/f128 ABI cases, four unsized
+FnOnce generation failures, one native assertion failure, seven native timeouts
+and two upstream ignored cases. Test bodies, assertions and input sizes remain
+unchanged. Native execution is arm64; metadata and generated-code compilation
+cover both targets. See
+[MILESTONES.md](MILESTONES.md) for the tested subsets and current verification.
 
 Native references must execute on the same target as generated Go. Renderer
 tests compare complete SVG/PNG bytes, API results, CLI process behavior and

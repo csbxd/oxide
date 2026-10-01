@@ -5,7 +5,7 @@ use rustc_public::mir::alloc::{AllocId, GlobalAlloc};
 use rustc_public::mir::mono::{Instance, InstanceKind, StaticDef};
 use rustc_public::mir::visit::{Location, MirVisitor};
 use rustc_public::mir::{
-    Body, CastKind, PointerCoercion, Rvalue, StatementKind, Terminator, TerminatorKind,
+    Body, CastKind, Mutability, PointerCoercion, Rvalue, StatementKind, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{Allocation, ClosureKind, ConstantKind, MirConst, RigidTy, Ty, TyKind};
 use rustc_public::{CrateDef, CrateDefType, rustc_internal};
@@ -147,6 +147,7 @@ struct Exporter<'tcx> {
     exported_functions: std::collections::HashMap<String, usize>,
     types: Vec<Value>,
     allocations: Vec<Value>,
+    immutable_allocations: std::collections::HashMap<Allocation, (AllocId, usize)>,
     vtables: std::collections::HashMap<String, u64>,
     upcasts: std::collections::HashMap<String, i64>,
     thread_locals: std::collections::HashMap<u64, Value>,
@@ -174,6 +175,7 @@ impl<'tcx> Exporter<'tcx> {
             exported_functions: std::collections::HashMap::new(),
             types: vec![],
             allocations: vec![],
+            immutable_allocations: std::collections::HashMap::new(),
             vtables: std::collections::HashMap::new(),
             upcasts: std::collections::HashMap::new(),
             thread_locals: std::collections::HashMap::new(),
@@ -273,6 +275,20 @@ impl<'tcx> Exporter<'tcx> {
             "kind": format!("{:?}", instance.kind), "empty_drop": instance.is_empty_shim(),
             "track_caller": instance.requires_caller_location()});
         let def = rustc_internal::internal(self.tcx, instance.def.def_id());
+        // Inline alloc sources and re-exports can change the public path. Only
+        // rustc-marked allocator declarations select the allocator boundary.
+        if instance.is_foreign_item()
+            && self.tcx.codegen_fn_attrs(def).flags.contains(
+                rustc_middle::middle::codegen_fn_attrs::CodegenFnAttrFlags::RUSTC_STD_INTERNAL_SYMBOL,
+            )
+            && matches!(
+                self.tcx.item_name(def).as_str(),
+                "__rust_alloc" | "__rust_alloc_zeroed" | "__rust_dealloc" | "__rust_realloc"
+                    | "__rust_alloc_error_handler" | "__rust_no_alloc_shim_is_unstable_v2"
+            )
+        {
+            entry["name"] = json!(format!("alloc::alloc::{}", self.tcx.item_name(def)));
+        }
         if !def.is_local()
             && self.tcx.def_path_str(def) == "std::sys::args::unix::imp::argc_argv"
             && self
@@ -413,6 +429,32 @@ impl<'tcx> Exporter<'tcx> {
                             }
                             let target = match callee.kind {
                                 InstanceKind::Virtual { idx } => format!("<virtual:{idx}>"),
+                                InstanceKind::Intrinsic
+                                    if matches!(
+                                        callee.intrinsic_name().as_deref(),
+                                        Some(
+                                            "const_allocate"
+                                                | "const_deallocate"
+                                                | "carryless_mul"
+                                                | "unchecked_funnel_shl"
+                                                | "unchecked_funnel_shr"
+                                                | "minimumf32"
+                                                | "minimumf64"
+                                                | "maximumf32"
+                                                | "maximumf64"
+                                        )
+                                    ) =>
+                                {
+                                    // These intrinsics supply their runtime implementation
+                                    // in Rust. Export that MIR instead of duplicating it.
+                                    if callee.body().is_none() {
+                                        return Err(format!(
+                                            "missing Rust intrinsic body: {}",
+                                            callee.name()
+                                        ));
+                                    }
+                                    self.enqueue(callee)
+                                }
                                 InstanceKind::Intrinsic | InstanceKind::LlvmIntrinsic => {
                                     let intrinsic = callee
                                         .intrinsic_name()
@@ -673,19 +715,26 @@ impl<'tcx> Exporter<'tcx> {
                 if let StatementKind::Assign(
                     _,
                     Rvalue::Cast(
-                        CastKind::PointerCoercion(PointerCoercion::ReifyFnPointer(_)),
+                        CastKind::PointerCoercion(
+                            PointerCoercion::ReifyFnPointer(_)
+                            | PointerCoercion::ClosureFnPointer(_),
+                        ),
                         operand,
                         _,
                     ),
                 ) = &stmt.kind
                 {
                     let ty = operand.ty(body.locals()).map_err(|e| e.to_string())?;
-                    let kind = ty.kind();
-                    let Some((def, args)) = kind.fn_def() else {
-                        return Err(format!("reified function has non-function type: {ty:?}"));
+                    let instance = match ty.kind() {
+                        TyKind::RigidTy(RigidTy::FnDef(def, args)) => {
+                            Instance::resolve_for_fn_ptr(def, &args)
+                        }
+                        TyKind::RigidTy(RigidTy::Closure(def, args)) => {
+                            Instance::resolve_closure(def, &args, ClosureKind::FnOnce)
+                        }
+                        _ => return Err(format!("reified function has non-callable type: {ty:?}")),
                     };
-                    let instance =
-                        Instance::resolve_for_fn_ptr(def, args).map_err(|e| e.to_string())?;
+                    let instance = instance.map_err(|e| e.to_string())?;
                     let symbol = self.enqueue(instance);
                     let id = serde_json::to_value(ty)
                         .map_err(|e| e.to_string())?
@@ -807,13 +856,14 @@ impl<'tcx> Exporter<'tcx> {
             );
             return Ok(());
         }
-        if let Some(principal) = dst.kind().trait_principal() {
+        if matches!(dst.kind(), TyKind::RigidTy(RigidTy::Dynamic(..))) {
+            let principal = dst.kind().trait_principal();
             if !src.layout().map_err(|e| e.to_string())?.shape().is_sized() {
                 return Ok(());
             }
             // Keep the binder intact. Extracting principal.value and wrapping it
             // in a dummy binder is invalid for higher-ranked Fn traits.
-            let global = GlobalAlloc::VTable(src, Some(principal));
+            let global = GlobalAlloc::VTable(src, principal);
             let id = global
                 .vtable_allocation()
                 .ok_or_else(|| "missing vtable allocation".to_string())?;
@@ -1093,7 +1143,28 @@ impl<'tcx> Exporter<'tcx> {
                 }
             }
             TyKind::RigidTy(RigidTy::Never) => info["kind"] = json!("never"),
-            TyKind::RigidTy(RigidTy::Coroutine(..)) => info["kind"] = json!("aggregate"),
+            TyKind::RigidTy(RigidTy::Coroutine(def, args)) => {
+                info["kind"] = json!("aggregate");
+                let count = info["variants"].as_array().map_or_else(
+                    || {
+                        info["variant"]
+                            .as_u64()
+                            .map_or(0, |index| index as usize + 1)
+                    },
+                    Vec::len,
+                );
+                info["discriminants"] = json!(
+                    (0..count)
+                        .map(|index| def
+                            .discriminant_for_variant(
+                                &args,
+                                rustc_internal::stable(rustc_abi::VariantIdx::from_usize(index))
+                            )
+                            .val
+                            .to_string())
+                        .collect::<Vec<_>>()
+                );
+            }
             other => {
                 info["kind"] = json!("unsupported");
                 info["detail"] = json!(format!("{other:?}"));
@@ -1164,7 +1235,28 @@ impl<'tcx> Exporter<'tcx> {
         match GlobalAlloc::from(id) {
             GlobalAlloc::Memory(a) => {
                 self.allocation_refs(&a)?;
-                data["memory"] = json!(a);
+                // rustc pools anonymous read-only initializers, upgrading the
+                // shared alignment. Named statics and mutable memory stay unique.
+                if a.mutability == Mutability::Not
+                    && !a.bytes.is_empty()
+                    && a.bytes.iter().all(Option::is_some)
+                {
+                    let mut key = a.clone();
+                    key.align = 1;
+                    if let Some(&(target, index)) = self.immutable_allocations.get(&key) {
+                        let align = self.allocations[index]["memory"]["align"]
+                            .as_u64()
+                            .ok_or("missing pooled allocation alignment")?;
+                        self.allocations[index]["memory"]["align"] = json!(align.max(a.align));
+                        data["alias"] = json!(target);
+                    } else {
+                        self.immutable_allocations
+                            .insert(key, (id, self.allocations.len()));
+                        data["memory"] = json!(a);
+                    }
+                } else {
+                    data["memory"] = json!(a);
+                }
             }
             GlobalAlloc::Function(i) => {
                 data["function"] = json!(self.enqueue(i));

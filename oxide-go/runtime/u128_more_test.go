@@ -25,6 +25,30 @@ func Test128Division(t *testing.T) {
 	}
 }
 
+func Test128BitCountsAndRotations(t *testing.T) {
+	for _, value := range integer128Cases() {
+		v := bigUnsigned128(value)
+		ones, trailing := uint32(0), uint32(128)
+		for i := 0; i < 128; i++ {
+			if v.Bit(i) != 0 {
+				ones++
+				trailing = min(trailing, uint32(i))
+			}
+		}
+		if U128LeadingZeros(value) != uint32(128-v.BitLen()) || U128TrailingZeros(value) != trailing || U128OnesCount(value) != ones {
+			t.Fatalf("bit counts for %v", value)
+		}
+		for _, n := range []uint32{0, 1, 31, 63, 64, 65, 127, 128, 129, math.MaxUint32} {
+			x := new(big.Int).Lsh(v, uint(n&127))
+			x.Or(x, new(big.Int).Rsh(v, uint(128-(n&127))))
+			want := bigTo128(x)
+			if got := U128RotateLeft(value, n); got != want || U128RotateRight(got, n) != value {
+				t.Fatalf("rotate %v by %d: %v, want %v", value, n, got, want)
+			}
+		}
+	}
+}
+
 func Test128CarryingMulAdd(t *testing.T) {
 	values := integer128Cases()
 	rng := rand.New(rand.NewPCG(871, 623))
@@ -126,6 +150,9 @@ func Test128FloatConversions(t *testing.T) {
 func Test128MoreNoGoAllocs(t *testing.T) {
 	a, b := U128{17, 39}, U128{12, 1}
 	requireNoGoAllocations(t, 100, func() {
+		if U128LeadingZeros(a) > 128 || U128TrailingZeros(a) > 128 || U128OnesCount(a) > 128 || U128RotateRight(U128RotateLeft(a, 67), 67) != a {
+			panic("bit operations")
+		}
 		q, r := U128DivRem(a, b)
 		lo, hi := U128CarryingMulAdd(q, b, r, U128{})
 		if lo != a || hi != (U128{}) || FloatToU128(U128ToF64(b)) == (U128{}) {

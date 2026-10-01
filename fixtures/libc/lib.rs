@@ -133,6 +133,54 @@ pub fn conformance(case: u64, seed: u64) -> u64 {
         3 => file(),
         4 => errno(),
         5 => aligned(seed),
+        6 => {
+            let mut buffer = [0u8; 128];
+            let mut count = -1;
+            let value = 0xfedc_ba98_7654_3210u64 | seed;
+            let output = unsafe {
+                libc::snprintf(
+                    buffer.as_mut_ptr().cast(),
+                    buffer.len(),
+                    c"%d|%llu|%.2f|%s%n".as_ptr(),
+                    -(seed as i32),
+                    value,
+                    1.25f64,
+                    c"oxide".as_ptr(),
+                    &mut count as *mut i32,
+                )
+            };
+            let expected = format!("{}|{}|1.25|oxide", -(seed as i32), value);
+            assert_eq!(output as usize, expected.len());
+            assert_eq!(count, output);
+            assert_eq!(&buffer[..expected.len()], expected.as_bytes());
+            assert_eq!(buffer[expected.len()], 0);
+            1
+        }
+        7 => {
+            let mut buffer = [0xaa_u8; 4];
+            let f: unsafe extern "C" fn(*mut c_char, size_t, *const c_char, ...) -> c_int =
+                libc::snprintf;
+            let output = unsafe {
+                f(
+                    buffer.as_mut_ptr().cast(),
+                    buffer.len(),
+                    c"%s-%d".as_ptr(),
+                    c"oxide".as_ptr(),
+                    seed as i32,
+                )
+            };
+            let expected = format!("oxide-{seed}");
+            assert_eq!(output as usize, expected.len());
+            assert_eq!(buffer, [b'o', b'x', b'i', 0]);
+            1
+        }
+        8 => {
+            let f: unsafe extern "C" fn(*const c_char, ...) -> c_int = libc::printf;
+            let mut count = -1;
+            assert_eq!(unsafe { f(c"%n".as_ptr(), &mut count as *mut i32) }, 0);
+            assert_eq!(count, 0);
+            1
+        }
         _ => panic!("unknown C ABI fixture"),
     }
 }

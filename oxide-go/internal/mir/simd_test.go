@@ -26,6 +26,58 @@ func TestSIMDConstantPadding(t *testing.T) {
 	}
 }
 
+func TestSIMDUnarySnapshotsAndPadding(t *testing.T) {
+	g := &generator{types: map[int]*Type{}}
+	g.line("package fixture\nimport (\"math\"; \"unsafe\")")
+	for _, width := range []int{32, 64} {
+		elem, array, vector := width, width+1, width+2
+		size := uint64(width / 8)
+		g.types[elem] = &Type{ID: elem, Kind: fmt.Sprintf("f%d", width), Size: size, Align: size, Sized: true}
+		g.types[array] = &Type{ID: array, Kind: "array", Size: size * 3, Align: size, Sized: true, Element: elem, Length: 3}
+		g.types[vector] = &Type{ID: vector, Kind: "aggregate", Size: size * 4, Align: size * 4, Sized: true, ValueABI: "Vector", Fields: []uint64{0}, VariantFieldTypes: [][]int{{array}}}
+		g.typeDecl(g.types[vector])
+		for _, operation := range []string{"simd_neg", "simd_fabs"} {
+			for _, alias := range []bool{false, true} {
+				name := fmt.Sprintf("Unary%d_%s", width, operation)
+				dst := 0
+				if alias {
+					name += "_Alias"
+					dst = 1
+				}
+				g.f = &Function{Name: name, Body: &Body{Locals: []Local{{Type: vector}, {Type: vector}}}}
+				g.line("func %s(src [4]uint%d) [4]uint%d { v1:=*(*T%d)(unsafe.Pointer(&src))", name, width, width, vector)
+				if !alias {
+					g.line("var v0 T%d", vector)
+				}
+				target := 1
+				g.intrinsicCall(0, operation, []json.RawMessage{json.RawMessage(`{"Copy":{"local":1,"projection":[]}}`)}, Place{Local: dst}, &target, nil, vector)
+				g.line("bb1: return *(*[4]uint%d)(unsafe.Pointer(&v%d)) }", width, dst)
+			}
+		}
+	}
+	source, err := format.Source([]byte(g.b.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	testSIMDProgram(t, source, `package fixture
+import "testing"
+func TestUnaryBits(t *testing.T) {
+ for _,tc:=range []struct{f func([4]uint32)[4]uint32; want [4]uint32}{
+  {Unary32_simd_neg,[4]uint32{0x80000000,0,0xff800001,0}},
+  {Unary32_simd_neg_Alias,[4]uint32{0x80000000,0,0xff800001,0xdeadbeef}},
+  {Unary32_simd_fabs,[4]uint32{0,0,0x7f800001,0}},
+  {Unary32_simd_fabs_Alias,[4]uint32{0,0,0x7f800001,0xdeadbeef}},
+ } { requireNoGoAllocations(t,100,func(){if got:=tc.f([4]uint32{0,0x80000000,0x7f800001,0xdeadbeef});got!=tc.want{t.Fatalf("f32 got %x, want %x",got,tc.want)}}) }
+ for _,tc:=range []struct{f func([4]uint64)[4]uint64; want [4]uint64}{
+  {Unary64_simd_neg,[4]uint64{0x8000000000000000,0,0x7ff0000000000001,0}},
+  {Unary64_simd_neg_Alias,[4]uint64{0x8000000000000000,0,0x7ff0000000000001,0x0123456789abcdef}},
+  {Unary64_simd_fabs,[4]uint64{0,0,0x7ff0000000000001,0}},
+  {Unary64_simd_fabs_Alias,[4]uint64{0,0,0x7ff0000000000001,0x0123456789abcdef}},
+ } { requireNoGoAllocations(t,100,func(){if got:=tc.f([4]uint64{0,0x8000000000000000,0xfff0000000000001,0x0123456789abcdef});got!=tc.want{t.Fatalf("f64 got %x, want %x",got,tc.want)}}) }
+}
+`)
+}
+
 func TestSIMDSqrt(t *testing.T) {
 	g := &generator{types: map[int]*Type{}}
 	g.line("package fixture\nimport (\"math\"; \"unsafe\")")

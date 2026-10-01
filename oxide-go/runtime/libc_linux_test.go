@@ -3,6 +3,7 @@
 package oxide
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -21,6 +22,82 @@ func libcString(c *Context, s string) uintptr {
 	return p
 }
 func libcErrno(c *Context) int32 { return *(*int32)(unsafe.Pointer(LibcErrnoLocation(c))) }
+
+func TestLibcGammaBoundaries(t *testing.T) {
+	c := NewContext()
+	defer c.Close()
+	if LibcCosh(c, 0) != 1 || LibcCoshf(c, 0) != 1 || math.Abs(LibcAcosh(c, LibcCosh(c, 1.25))-1.25) > 1e-13 {
+		t.Fatal("C hyperbolic function composition")
+	}
+	for _, tc := range []struct{ x, want float64 }{
+		{0, math.Inf(1)}, {math.Copysign(0, -1), math.Inf(-1)},
+		{1, 1}, {2, 1}, {3, 2}, {4, 6}, {5, 24},
+		{0.5, math.Sqrt(math.Pi)}, {-0.5, -2 * math.Sqrt(math.Pi)},
+		{-1, math.NaN()}, {-2, math.NaN()}, {math.NaN(), math.NaN()},
+		{math.Inf(-1), math.NaN()}, {math.Inf(1), math.Inf(1)},
+	} {
+		for _, got := range []float64{LibcTgamma(c, tc.x), float64(LibcTgammaf(c, float32(tc.x)))} {
+			if math.IsNaN(tc.want) {
+				if !math.IsNaN(got) {
+					t.Fatalf("gamma(%v) = %v", tc.x, got)
+				}
+			} else if math.IsInf(tc.want, 0) {
+				if got != tc.want {
+					t.Fatalf("gamma(%v) = %v, want %v", tc.x, got, tc.want)
+				}
+			} else if math.Abs(got-tc.want) > 1e-6*math.Max(1, math.Abs(tc.want)) {
+				t.Fatalf("gamma(%v) = %v, want %v", tc.x, got, tc.want)
+			}
+		}
+	}
+	storage := c.Alloc(16, 4)
+	words := unsafe.Slice((*uint32)(unsafe.Pointer(storage)), 4)
+	for _, tc := range []struct {
+		x, want float64
+		sign    int32
+	}{
+		{0, math.Inf(1), 1}, {math.Copysign(0, -1), math.Inf(1), -1},
+		{1, 0, 1}, {2, 0, 1}, {-0.5, math.Log(2 * math.Sqrt(math.Pi)), -1},
+	} {
+		for _, width := range []int{32, 64} {
+			for i := range words {
+				words[i] = 0x89abcdef
+			}
+			var got float64
+			if width == 32 {
+				got = float64(LibcLgammafR(c, float32(tc.x), storage+4))
+			} else {
+				got = LibcLgammaR(c, tc.x, storage+4)
+			}
+			if int32(words[1]) != tc.sign || words[0] != 0x89abcdef || words[2] != 0x89abcdef || words[3] != 0x89abcdef {
+				t.Fatalf("lgamma%d(%v) sign/adjacent storage: %x", width, tc.x, words)
+			}
+			if math.IsInf(tc.want, 0) {
+				if got != tc.want {
+					t.Fatalf("lgamma%d(%v) = %v", width, tc.x, got)
+				}
+			} else if math.Abs(got-tc.want) > 1e-6 {
+				t.Fatalf("lgamma%d(%v) = %v, want %v", width, tc.x, got, tc.want)
+			}
+		}
+	}
+	mark := c.Mark()
+	requireNoGoAllocations(t, 100, func() {
+		LibcAcosh(c, 2)
+		LibcAcoshf(c, 2)
+		LibcAsinh(c, 0.5)
+		LibcAsinhf(c, 0.5)
+		LibcCosh(c, 1.25)
+		LibcCoshf(c, 1.25)
+		LibcTgamma(c, 0.5)
+		LibcTgammaf(c, 0.5)
+		LibcLgammaR(c, -0.5, storage+4)
+		LibcLgammafR(c, -0.5, storage+4)
+		if c.Mark() != mark {
+			panic("C math leaked automatic storage")
+		}
+	})
+}
 
 func TestLibcFDDirectoryOwnership(t *testing.T) {
 	// libc's environment lives for the process. Its TLS call-stack slots live

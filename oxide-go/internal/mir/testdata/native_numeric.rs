@@ -1,4 +1,12 @@
-#![feature(signed_bigint_helpers, disjoint_bitor)]
+#![feature(
+    signed_bigint_helpers,
+    disjoint_bitor,
+    core_intrinsics,
+    funnel_shifts,
+    uint_carryless_mul,
+    float_minimum_maximum,
+    portable_simd
+)]
 
 #[path = "numeric.rs"]
 mod fixture;
@@ -27,13 +35,16 @@ fn main() {
         state ^= state << 17;
         seeds.push(state);
     }
-    for case in 0..33 {
+    for case in 0..116 {
         for &seed in &seeds {
             let result = fixture::conformance(case, seed);
             if case == 31 || case == 32 {
                 let negative_zero = if case == 31 { 1_u64 << 31 } else { 1_u64 << 63 };
                 let expected = if seed & 3 == 2 { negative_zero } else { 0 };
-                assert_eq!(result, expected, "ordinary float operations fused or changed zero sign");
+                assert_eq!(
+                    result, expected,
+                    "ordinary float operations fused or changed zero sign"
+                );
             }
             println!("{case} {seed} {result}");
         }

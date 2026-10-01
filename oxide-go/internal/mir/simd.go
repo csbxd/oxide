@@ -115,6 +115,32 @@ func (g *generator) simdIntrinsic(name string, args []json.RawMessage, dst Place
 	ae, an := g.vectorInfo(a.typ)
 	av := lane(a, ae, "i")
 	switch name {
+	case "simd_neg", "simd_fabs":
+		arity(1)
+		de, dn := g.vectorInfo(d.typ)
+		if ae != de || an != dn {
+			g.fail("%s layout", name)
+		}
+		if name == "simd_fabs" && g.typ(ae).Kind != "f32" && g.typ(ae).Kind != "f64" {
+			g.fail("simd_fabs floating-point lane type")
+		}
+		value := "-(" + av + ")"
+		switch k := g.typ(ae).Kind; k {
+		case "f32", "f64":
+			width := g.typ(ae).Size * 8
+			op := "^"
+			if name == "simd_fabs" {
+				op = "&^"
+			}
+			value = fmt.Sprintf("math.Float%dfrombits(math.Float%dbits(%s)%s(uint%d(1)<<%d))", width, width, av, op, width, width-1)
+		case "i128":
+			value = "oxide.I128SubValue(oxide.I128{}," + av + ")"
+		case "i8", "i16", "i32", "i64", "isize":
+		default:
+			g.fail("SIMD neg lane type %s", k)
+		}
+		g.line("for i:=uintptr(0); i<%d; i++ { %s=%s }", an, lane(d, de, "i"), value)
+		return
 	case "simd_reduce_all", "simd_reduce_any":
 		arity(1)
 		init, expr := "true", "r && ("+av+" != 0)"

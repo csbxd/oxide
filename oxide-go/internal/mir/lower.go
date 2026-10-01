@@ -133,7 +133,11 @@ func (g *generator) assign(dst location, raw json.RawMessage) {
 		a := args()
 		op := decode[string](a[0])
 		l, lt := g.operand(a[1])
-		r, _ := g.operand(a[2])
+		r, rt := g.operand(a[2])
+		// MIR overflow assertions still inspect the full shift count.
+		if (op == "Shl" || op == "Shr" || op == "ShlUnchecked" || op == "ShrUnchecked") && (g.typ(rt).Kind == "u128" || g.typ(rt).Kind == "i128") {
+			r = "(" + r + ").Lo"
+		}
 		if (op == "Eq" || op == "Ne") && g.typ(lt).Kind == "pointer" && g.typ(lt).Size == 16 {
 			lp, rp := g.operandPlace(a[1]), g.operandPlace(a[2])
 			expr := fmt.Sprintf("(*(*uintptr)(%s)==*(*uintptr)(%s) && *(*uintptr)(unsafe.Add(%s,8))==*(*uintptr)(unsafe.Add(%s,8)))", lp.address, rp.address, lp.address, rp.address)
@@ -461,6 +465,14 @@ func (g *generator) binary(op, l, r string, typ int) string {
 	s := map[string]string{"Add": "+", "AddUnchecked": "+", "Sub": "-", "SubUnchecked": "-", "Mul": "*", "MulUnchecked": "*", "Div": "/", "Rem": "%", "BitXor": "^", "BitAnd": "&", "BitOr": "|", "Eq": "==", "Ne": "!=", "Lt": "<", "Le": "<=", "Gt": ">", "Ge": ">="}[op]
 	if t.Kind == "bool" {
 		switch op {
+		case "Lt":
+			return fmt.Sprintf("(!(%s) && (%s))", l, r)
+		case "Le":
+			return fmt.Sprintf("(!(%s) || (%s))", l, r)
+		case "Gt":
+			return fmt.Sprintf("((%s) && !(%s))", l, r)
+		case "Ge":
+			return fmt.Sprintf("((%s) || !(%s))", l, r)
 		case "BitXor":
 			s = "!="
 		case "BitAnd":
@@ -733,6 +745,9 @@ func (g *generator) terminator(bb int, raw json.RawMessage, ret int) {
 
 func (g *generator) variadicWord(value string, typ int) string {
 	t := g.typ(typ)
+	if t.Kind == "f64" {
+		return "uintptr(math.Float64bits(" + value + "))"
+	}
 	if t.Size > 8 || g.scalar(t) == "" || strings.HasPrefix(t.Kind, "f") || t.Kind == "bool" {
 		g.fail("unsupported C variadic argument type %s", t.Kind)
 	}
@@ -770,13 +785,14 @@ func (g *generator) indirectCall(bb int, funcRaw json.RawMessage, args []json.Ra
 	}
 	a := []string{"ctx"}
 	types := []string{"*oxide.Context"}
+	var variadic []string
 	if g.indirectValue(g.place(dst).typ) {
 		types = append(types, "uintptr")
 	}
 	for i, arg := range g.callArguments(bb, args) {
 		x, t := arg.value, arg.typ
 		if typ.FnVariadic && i >= typ.FnFixedCount {
-			a = append(a, g.variadicWord(x, t))
+			variadic = append(variadic, g.variadicWord(x, t))
 			continue
 		}
 		a = append(a, x)
@@ -785,10 +801,23 @@ func (g *generator) indirectCall(bb int, funcRaw json.RawMessage, args []json.Ra
 	if typ.FnVariadic {
 		types = append(types, "...uintptr")
 	}
+	if len(variadic) > 0 {
+		// An unknown Go variadic callee would heap-allocate a literal argument
+		// slice. Rust's C argument storage lasts only for this invocation.
+		g.line("func(){ variadicMark:=ctx.Mark(); defer ctx.Restore(variadicMark)")
+		g.line("variadicArgs:=unsafe.Slice((*uintptr)(unsafe.Pointer(ctx.Alloc(%d,8))),%d)", len(variadic)*8, len(variadic))
+		for i, word := range variadic {
+			g.line("variadicArgs[%d]=%s", i, word)
+		}
+		a = append(a, "variadicArgs...")
+	}
 	sig := "func(" + strings.Join(types, ",") + ") " + g.returnType(g.place(dst).typ)
 	g.line("{ f:=*(*%s)(unsafe.Pointer(&struct{P uintptr}{%s}));", sig, fn)
 	g.callResult(g.place(dst), "f", a)
 	g.line("}")
+	if len(variadic) > 0 {
+		g.line("}()")
+	}
 	g.line("if ctx.Failed(){")
 	g.unwind(unwind, ret)
 	g.line("}")
@@ -886,6 +915,15 @@ func (g *generator) intrinsicCall(bb int, name string, args []json.RawMessage, d
 		return
 	}
 	switch name {
+	case "fadd_algebraic", "fsub_algebraic", "fmul_algebraic", "fdiv_algebraic", "frem_algebraic":
+		if len(args) != 2 {
+			g.fail("%s arity", name)
+		}
+		a, t := g.operand(args[0])
+		b, _ := g.operand(args[1])
+		op := map[string]string{"fadd_algebraic": "Add", "fsub_algebraic": "Sub", "fmul_algebraic": "Mul", "fdiv_algebraic": "Div", "frem_algebraic": "Rem"}[name]
+		g.storeValue(g.place(dst), g.binary(op, a, b, t))
+		goToTarget()
 	case "disjoint_bitor":
 		if len(args) != 2 {
 			g.fail("disjoint_bitor arity")
@@ -907,7 +945,7 @@ func (g *generator) intrinsicCall(bb int, name string, args []json.RawMessage, d
 	case "carrying_mul_add":
 		g.carryingMulAdd(args, g.place(dst))
 		goToTarget()
-	case "simd_splat", "simd_add", "simd_sub", "simd_mul", "simd_div", "simd_shl", "simd_shr", "simd_or", "simd_and", "simd_xor", "simd_eq", "simd_ne", "simd_lt", "simd_le", "simd_gt", "simd_ge", "simd_select", "simd_reduce_all", "simd_reduce_any", "simd_reduce_max", "simd_reduce_min", "simd_reduce_or", "simd_extract", "simd_insert", "simd_shuffle", "simd_bitmask", "simd_cast", "simd_fsqrt":
+	case "simd_splat", "simd_neg", "simd_fabs", "simd_add", "simd_sub", "simd_mul", "simd_div", "simd_shl", "simd_shr", "simd_or", "simd_and", "simd_xor", "simd_eq", "simd_ne", "simd_lt", "simd_le", "simd_gt", "simd_ge", "simd_select", "simd_reduce_all", "simd_reduce_any", "simd_reduce_max", "simd_reduce_min", "simd_reduce_or", "simd_extract", "simd_insert", "simd_shuffle", "simd_bitmask", "simd_cast", "simd_fsqrt":
 		g.simdIntrinsic(name, args, dst)
 		goToTarget()
 	case "assume", "cold_path":
@@ -925,13 +963,38 @@ func (g *generator) intrinsicCall(bb int, name string, args []json.RawMessage, d
 	case "is_val_statically_known":
 		g.line("%s=false", g.place(dst).read())
 		goToTarget()
-	case "log", "log2", "sin", "cos", "sqrt", "sqrtf32", "sqrtf64", "floorf32", "floorf64", "ceilf32", "ceilf64", "roundf32", "roundf64", "truncf32", "floor", "ceil", "round":
+	case "exp", "exp2", "log", "log2", "log10", "sin", "cos", "sqrt", "sqrtf32", "sqrtf64", "floorf32", "floorf64", "ceilf32", "ceilf64", "roundf32", "roundf64", "truncf32", "truncf64", "round_ties_even_f32", "round_ties_even_f64", "floor", "ceil", "round":
 		if len(args) != 1 {
 			g.fail("%s arity", name)
 		}
 		x, _ := g.operand(args[0])
-		fn := map[string]string{"log": "Log", "log2": "Log2", "sin": "Sin", "cos": "Cos", "sqrt": "Sqrt", "sqrtf32": "Sqrt", "sqrtf64": "Sqrt", "floorf32": "Floor", "floorf64": "Floor", "ceilf32": "Ceil", "ceilf64": "Ceil", "roundf32": "Round", "roundf64": "Round", "truncf32": "Trunc", "floor": "Floor", "ceil": "Ceil", "round": "Round"}[name]
+		fn := map[string]string{"exp": "Exp", "exp2": "Exp2", "log": "Log", "log2": "Log2", "log10": "Log10", "sin": "Sin", "cos": "Cos", "sqrt": "Sqrt", "sqrtf32": "Sqrt", "sqrtf64": "Sqrt", "floorf32": "Floor", "floorf64": "Floor", "ceilf32": "Ceil", "ceilf64": "Ceil", "roundf32": "Round", "roundf64": "Round", "truncf32": "Trunc", "truncf64": "Trunc", "round_ties_even_f32": "RoundToEven", "round_ties_even_f64": "RoundToEven", "floor": "Floor", "ceil": "Ceil", "round": "Round"}[name]
 		g.line("%s=%s(math.%s(float64(%s)))", g.place(dst).read(), g.goType(g.place(dst).typ), fn, x)
+		goToTarget()
+	case "fmaf32", "fmaf64":
+		if len(args) != 3 {
+			g.fail("%s arity", name)
+		}
+		a, _ := g.operand(args[0])
+		b, _ := g.operand(args[1])
+		c, _ := g.operand(args[2])
+		fn := "math.FMA"
+		if name == "fmaf32" {
+			fn = "oxide.FMA32"
+		}
+		g.storeValue(g.place(dst), fmt.Sprintf("%s(%s,%s,%s)", fn, a, b, c))
+		goToTarget()
+	case "float_to_int_unchecked":
+		if len(args) != 1 {
+			g.fail("float_to_int_unchecked arity")
+		}
+		x, _ := g.operand(args[0])
+		d := g.place(dst)
+		if kind := g.typ(d.typ).Kind; kind == "u128" || kind == "i128" {
+			g.storeValue(d, "oxide.FloatTo"+strings.ToUpper(kind[:1])+"128(float64("+x+"))")
+		} else {
+			g.storeValue(d, g.goType(d.typ)+"("+x+")")
+		}
 		goToTarget()
 	case "fabs", "fabsf32", "fabsf64":
 		if len(args) != 1 {
@@ -1025,24 +1088,30 @@ func (g *generator) intrinsicCall(bb int, name string, args []json.RawMessage, d
 		goToTarget()
 	case "ctlz", "ctlz_nonzero":
 		x, t := g.operand(args[0])
+		helper := "LeadingZeros"
 		if g.typ(t).Kind == "u128" || g.typ(t).Kind == "i128" {
-			g.fail("128-bit %s is not yet lowered", name)
+			helper = "U128LeadingZeros"
+			x = "oxide.U128(" + x + ")"
 		}
-		g.line("%s=oxide.LeadingZeros(%s)", g.place(dst).read(), x)
+		g.line("%s=oxide.%s(%s)", g.place(dst).read(), helper, x)
 		goToTarget()
 	case "cttz", "cttz_nonzero":
 		x, t := g.operand(args[0])
+		helper := "TrailingZeros"
 		if g.typ(t).Kind == "u128" || g.typ(t).Kind == "i128" {
-			g.fail("128-bit %s is not yet lowered", name)
+			helper = "U128TrailingZeros"
+			x = "oxide.U128(" + x + ")"
 		}
-		g.line("%s=oxide.TrailingZeros(%s)", g.place(dst).read(), x)
+		g.line("%s=oxide.%s(%s)", g.place(dst).read(), helper, x)
 		goToTarget()
 	case "ctpop":
 		x, t := g.operand(args[0])
+		helper := "OnesCount"
 		if g.typ(t).Kind == "u128" || g.typ(t).Kind == "i128" {
-			g.fail("128-bit ctpop is not yet lowered")
+			helper = "U128OnesCount"
+			x = "oxide.U128(" + x + ")"
 		}
-		g.line("%s=oxide.OnesCount(%s)", g.place(dst).read(), x)
+		g.line("%s=oxide.%s(%s)", g.place(dst).read(), helper, x)
 		goToTarget()
 	case "bswap":
 		x, t := g.operand(args[0])
@@ -1063,22 +1132,36 @@ func (g *generator) intrinsicCall(bb int, name string, args []json.RawMessage, d
 		g.line("%s=oxide.%s(%s)", g.place(dst).read(), helper, x)
 		goToTarget()
 	case "rotate_left", "rotate_right":
-		x, _ := g.operand(args[0])
+		x, t := g.operand(args[0])
 		n, _ := g.operand(args[1])
 		fn := "RotateLeft"
 		if name == "rotate_right" {
 			fn = "RotateRight"
 		}
-		g.line("%s=oxide.%s(%s,uint32(%s))", g.place(dst).read(), fn, x, n)
+		if g.typ(t).Kind == "u128" || g.typ(t).Kind == "i128" {
+			g.line("%s=%s(oxide.U128%s(oxide.U128(%s),uint32(%s)))", g.place(dst).read(), g.goType(t), fn, x, n)
+		} else {
+			g.line("%s=oxide.%s(%s,uint32(%s))", g.place(dst).read(), fn, x, n)
+		}
 		goToTarget()
 	case "integer_min", "integer_max":
-		a, _ := g.operand(args[0])
+		a, t := g.operand(args[0])
 		b, _ := g.operand(args[1])
 		fn := "IntegerMin"
+		op := "Lt"
 		if name == "integer_max" {
 			fn = "IntegerMax"
+			op = "Gt"
 		}
-		g.line("%s=oxide.%s(%s,%s)", g.place(dst).read(), fn, a, b)
+		if g.typ(t).Kind == "u128" || g.typ(t).Kind == "i128" {
+			g.line("if %s {", g.binary(op, a, b, t))
+			g.storeValue(g.place(dst), a)
+			g.line("} else {")
+			g.storeValue(g.place(dst), b)
+			g.line("}")
+		} else {
+			g.line("%s=oxide.%s(%s,%s)", g.place(dst).read(), fn, a, b)
+		}
 		goToTarget()
 	case "saturating_add", "saturating_sub":
 		a, at := g.operand(args[0])
@@ -1120,10 +1203,12 @@ func (g *generator) intrinsicCall(bb int, name string, args []json.RawMessage, d
 			g.line("%s=uintptr(unsafe.Add(unsafe.Pointer(%s),int64(%s)*%d))", g.place(dst).read(), p, n, sz)
 		} else {
 			q, _ := g.operand(args[1])
+			// A ZST stride occurs in guarded, unreachable Rust paths. Keep
+			// the division at runtime so Go accepts those paths as well.
 			if name == "ptr_offset_from_unsigned" {
-				g.line("%s=(%s-%s)/%d", g.place(dst).read(), p, q, sz)
+				g.line("%s=(%s-%s)/oxide.Scalar[uintptr](%d)", g.place(dst).read(), p, q, sz)
 			} else {
-				g.line("%s=int64(%s-%s)/%d", g.place(dst).read(), p, q, sz)
+				g.line("%s=int64(%s-%s)/oxide.Scalar[int64](%d)", g.place(dst).read(), p, q, sz)
 			}
 		}
 		goToTarget()
@@ -1289,9 +1374,9 @@ func (g *generator) intrinsicCall(bb int, name string, args []json.RawMessage, d
 		if len(args) != 2 {
 			g.fail("exact_div arity")
 		}
-		l, _ := g.operand(args[0])
+		l, t := g.operand(args[0])
 		r, _ := g.operand(args[1])
-		g.line("%s = %s / %s", g.place(dst).read(), l, r)
+		g.line("%s = %s", g.place(dst).read(), g.binary("Div", l, r, t))
 		g.line("goto bb%d", *target)
 	case "unchecked_add", "unchecked_sub", "unchecked_mul":
 		if len(args) != 2 {

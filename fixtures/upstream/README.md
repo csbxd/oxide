@@ -12,7 +12,148 @@ The fixture uses the `rust-src` installed with Oxide's compiler, pinned by
 `574ff7d98bd6d037e5236a8453029173b32631fd`. It does not fetch the changing Rust
 `main` branch during a test run.
 
-## Scope
+## Current passing baseline (2026-10-01)
+
+The completed M16 promotion measures **all 4,662 cases**, records **4,472**
+successes and retains every M15 success. The only added passing case is
+num::floats::mul_add::test_f32, restored with a single-rounding f32 FMA helper.
+All passing cases execute native Rust, fresh export, Go build and generated Go.
+The run takes 8,069.71 seconds; context and discovery are unchanged. Its report
+is `.cache/upstream/arm64/fma32-full-report.json`, with no unselected cases.
+
+| Suite | Discovered | Passed | Generation failed | Native failed | Native timeout | Ignored |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| coretests | 2,852 | 2,666 | 176 | 1 | 7 | 2 |
+| alloctests | 1,481 | 1,478 | 3 | 0 | 0 | 0 |
+| alloctests-internal | 327 | 326 | 1 | 0 | 0 | 0 |
+| c-str-alloc-error | 1 | 1 | 0 | 0 | 0 | 0 |
+| vec-deque-alloc-error | 1 | 1 | 0 | 0 | 0 | 0 |
+| **Total** | **4,662** | **4,472** | **180** | **1** | **7** | **2** |
+
+All 176 core generation failures require f16/f128 ABI support; the four alloc
+failures require by-value unsized FnOnce support. The native f16 FMA failure
+and seven native slice timeouts remain as described in the historical full
+measurement below. No generated-Go execution failure or baseline regression
+occurs. Source bodies, assertions and input sizes remain unchanged.
+Native execution is arm64; compiler metadata and generated-code compilation
+cover both targets. The numeric fixture verifies 12,644 records, including
+FMA halfway/subnormal/overflow cases and raw-zero warmed Go allocations.
+Native amd64 replay of the new checkpoints remains unverified.
+
+### Completed M15 measurement
+
+The completed M15 promotion records **4,471** passing cases: 2,665 coretests,
+1,478 main alloctests, 326 internal alloc cases and both auxiliary targets.
+It retains every M14 success and recovers ptr::test_variadic_fnptr using a
+real libc printf boundary. All pass native Rust, fresh export, Go build and
+execution in 995.99 seconds, without failure or timeout. Context and inventory
+are unchanged; the report is `.cache/upstream/arm64/printf-final-report.json`.
+It marks 189 cases unselected and preserves two ignored cases. Native execution
+is arm64; metadata/generated-code compilation cover both targets. Actual
+variadic formatting and zero Go allocations are checked by 27 libc records.
+
+### Completed M14 measurement
+
+The completed M14 promotion records **4,470** passing cases: 2,664 coretests,
+1,478 main alloctests, 326 internal alloc cases and both auxiliary targets.
+It retains every M13 success and restores three join tests by exporting the
+compiler's Coroutine discriminant values. All pass native Rust, fresh export,
+Go build and execution in 944.43 seconds, without failure or timeout. The
+report is `.cache/upstream/arm64/coroutine-tag-final-report.json`; it preserves
+the context and inventory and marks 190 cases unselected plus two ignored.
+Native execution is arm64; metadata/generated-code compilation cover both
+targets. The numeric/coroutine fixture verifies 12,099 records and raw-zero
+warmed Go allocations, including nested await and cancellation Drop traces.
+
+### Completed M13 measurement
+
+The completed M13 promotion records **4,467** passing cases: 2,661 coretests,
+1,478 main alloctests, 326 internal alloc cases and both auxiliary targets.
+It retains every M12 success and recovers coretests/simd::testing by lowering
+vector negation and floating absolute value. All pass native Rust, fresh export,
+Go build and execution in 947.42 seconds. Context and inventory are unchanged.
+The report is `.cache/upstream/arm64/simd-unary-final-report.json`; 193 cases
+remain unselected and two remain ignored. Native execution is arm64; metadata
+and generated-code compilation cover both targets. The corresponding numeric
+suite has 11,663 records and raw-zero warmed Go allocations.
+
+### Completed M12 measurement
+
+The completed M12 promotion records **4,466** passing cases: 2,660 coretests,
+1,478 main alloctests, 326 internal alloc cases and both auxiliary targets.
+It retains every M11 success and recovers pin_macro::unsize_coercion using
+compiler-provided auto-trait-only vtables. All pass native Rust, fresh export,
+Go build and execution in 921.35 seconds, with unchanged context and discovery
+inventory. The report is `.cache/upstream/arm64/auto-trait-final-report.json`;
+it marks 194 unselected cases not_run and preserves two ignored cases.
+Native execution is arm64; metadata and generated-code compilation cover
+both targets. The associated 78-record DST differential suite checks alignment,
+size, destruction and raw-zero warmed Go allocations.
+
+### Completed M11 measurement
+
+The completed M11 promotion records **4,465** passing cases: 2,659 coretests,
+1,478 main alloctests, 326 internal alloc cases and both auxiliary targets.
+It retains every M10 success and adds twelve C-math/algebraic-float cases.
+All pass native Rust, fresh export, Go build and execution in 877.02 seconds,
+with unchanged context and discovery inventory. The report is
+`.cache/upstream/arm64/math-entry-final-report.json`; it marks 195 unselected
+cases not_run and preserves two ignored cases. Native execution is arm64;
+compiler metadata and generated-code compilation cover both targets.
+
+### Completed M10 measurement
+
+The completed M10 promotion records **4,453** passing cases: 2,647 `coretests`,
+1,478 main `alloctests`, 326 internal alloc cases and both auxiliary targets.
+All 4,450 M9 successes are retained and three constant pointer-identity cases
+are recovered by pooling anonymous read-only allocations. Every recorded case
+passes fresh native Rust, MIR export, Go build and execution in 925.95 seconds.
+The report is `.cache/upstream/arm64/constant-pool-final-report.json`; its 207
+not_run cases comprise the four known M9 generation failures and 203 core
+cases outside this selection. Two upstream ignored cases remain ignored.
+Context and discovery inventory are unchanged. Native amd64 execution of
+this checkpoint remains unverified; compiler metadata and generated-code
+compilation cover both targets.
+
+### Completed M9 measurement
+
+The completed M9 promotion records **4,450** passing cases: 2,647 `coretests`,
+1,475 main `alloctests`, 326 internal alloc cases and both auxiliary targets.
+It retains every one of M8's 2,584 successes, with unchanged compiler/source/
+dependency/adapter context and discovery inventory. All 1,808 main/internal
+alloc cases were measured, leaving four emit failures involving unsized FnOnce
+values and three constant pointer-identity execution failures. The run took
+1,344.49 seconds; its report is
+`.cache/upstream/arm64/intrinsic-coverage-final-report.json`. Its 203 `not_run`
+cases are outside the selected core set, and both upstream ignored cases remain
+ignored. M10 subsequently recovers all three pointer-identity cases and reruns
+every success. See
+[MILESTONES.md](../../MILESTONES.md) for repair counts, numeric/allocation checks
+and native amd64 verification limits.
+
+### Earlier M8 checkpoint
+
+At M8, the [Linux arm64 baseline](baseline-linux-arm64.json) recorded **2,584**
+passing cases: 2,579 `coretests`, two main `alloctests`, one internal alloc case
+and both allocation-error auxiliary targets. A fresh selected `promote --jobs 4`
+reran all 2,507 previous successes plus 77 failing candidates; **all 2,584
+passed** native Rust and generated Go in **483.68 seconds**. Baseline history
+validation confirms that every previous success and the entire context and
+discovery inventory are preserved. The report is
+`.cache/upstream/arm64/simple-fixes-report.json`.
+
+The small fixes cover atomic min/max, bool ordering, guarded ZST
+pointer-distance paths, 128-bit integer operations, closure function-pointer
+reification and compiler-marked allocator aliases. The latter resolves the
+shared support blocker for the three selected main/internal alloc cases.
+Their other 1,805 cases remain unmeasured after the repair. The promotion
+reports 2,076 unselected cases as `not_run` and preserves two upstream ignored
+cases; no new full-inventory failure count is claimed. See
+[MILESTONES.md](../../MILESTONES.md) for the repair counts and separate numeric
+and allocation checks. Native execution here is Linux arm64; the additional
+amd64 evidence is compiler metadata and generated-code compilation.
+
+## Scope and historical full measurement (2026-09-29)
 
 Five test targets are discovered and reported separately:
 
@@ -66,9 +207,9 @@ execution failures.
 
 The full report is `.cache/upstream/arm64/full-corrected-report.json`. Its
 2,507 successful case IDs retain all 1,180 previously recorded baseline cases
-and all 1,261 successes observed earlier. The checked-in
-[Linux arm64 baseline](baseline-linux-arm64.json) contains exactly those
-2,507 successes. A subsequent independent `check --jobs 4` rebuilt the current
+and all 1,261 successes observed earlier. At that checkpoint, the
+[Linux arm64 baseline](baseline-linux-arm64.json) contained exactly those
+2,507 successes. A subsequent independent `check --jobs 4` rebuilt that
 frontend and translator, rediscovered all five targets, and reran every
 recorded case: **all 2,507 passed**, with exit status 0, in **524.9 seconds
 (about 8.7 minutes)**. Both runs executed native Rust and generated Go on Linux
@@ -76,7 +217,7 @@ arm64. The verification report is
 `.cache/upstream/arm64/full-verification-report.json`; its `not_run` entries are
 the unselected cases outside the passing baseline.
 
-Only test integration files are changed. Staged copies retain every upstream
+The fixture changes only test integration files. Staged copies retain every upstream
 test body, assertion and test size. The fixture replaces test attribute tokens
 with a local procedural macro that preserves the original libtest test and
 adds a private export function. It does not apply the JVM harness's reduction
@@ -264,10 +405,12 @@ ordinary retry grouping and bisection still apply; timeouts never establish
 shared failure. Any previously passing case that becomes blocked fails the
 regression gate.
 
-An observed alloctests support failure involves an `__rust_alloc` `Item`
-exposed through `alloc` aliases that the emitter cannot lower. The reports
-identify affected cases and preserve their diagnostics; this fixture does not
-change Oxide's allocator or alias implementation to make them pass.
+The historical alloctests support failure involved an `__rust_alloc` `Item`
+exposed through inline/re-exported `alloc` paths. Oxide's frontend now uses
+rustc's internal-symbol marker to normalize those allocator declarations.
+Three selected main/internal alloc cases pass after this repair; the original
+full-scan diagnostics are retained. The fixture does not change allocator
+semantics, MIR or generated code to bypass a failure.
 
 Every compiled generated test executes in a separate process. The Rust adapter
 preserves successful `Termination` results,
