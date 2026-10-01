@@ -393,6 +393,8 @@ func (g *generator) scalar(t *Type) string {
 		return "oxide.U128"
 	case "f32", "f64":
 		return "float" + t.Kind[1:]
+	case "f16", "f128":
+		return "oxide.F" + t.Kind[1:]
 	}
 	if t.ValueABI == "Scalar" {
 		if t.ABIScalar == nil {
@@ -636,7 +638,7 @@ func (g *generator) synthesizedConstructor(f *Function, params []int, ret int) b
 }
 func (g *generator) zero(id int) string {
 	t := g.typ(id)
-	if g.scalar(t) == "oxide.I128" || g.scalar(t) == "oxide.U128" {
+	if g.scalar(t) == "oxide.I128" || g.scalar(t) == "oxide.U128" || g.scalar(t) == "oxide.F128" {
 		return g.goType(id) + "{}"
 	}
 	if t.Kind == "bool" {
@@ -912,7 +914,7 @@ func (g *generator) operand(raw json.RawMessage) (string, int) {
 		if g.scalar(t) == "float64" {
 			return "math.Float64frombits(" + bits.String() + ")", t.ID
 		}
-		if g.scalar(t) == "oxide.U128" || g.scalar(t) == "oxide.I128" {
+		if g.scalar(t) == "oxide.U128" || g.scalar(t) == "oxide.I128" || g.scalar(t) == "oxide.F128" {
 			mask := new(big.Int).Lsh(big.NewInt(1), 64)
 			lo := new(big.Int).Mod(new(big.Int).Set(bits), mask)
 			hi := new(big.Int).Rsh(new(big.Int).Set(bits), 64)

@@ -15,6 +15,8 @@ import (
 // call chain at a time and represents one Rust thread, including its TLS.
 // It does not own Rust heap allocations.
 type Context struct {
+	// Binary128Math optionally overrides the built-in math. Set before use.
+	Binary128Math  Binary128Math
 	segments       [][]byte
 	segment        int
 	offset         uintptr

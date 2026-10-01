@@ -14,6 +14,69 @@ The fixture uses the `rust-src` installed with Oxide's compiler, pinned by
 
 ## Current passing baseline (2026-10-01)
 
+M18 records **4,649 passing cases**, retaining every M17 success and adding
+the 13 remaining binary128 math cases. They now use built-in pure Go math
+with fixed-size wider intermediates. The completed promotion takes
+1,787.90 seconds, with no regression or timeout. Its report is
+`.cache/upstream/arm64/f128-math-promotion-report.json`; context and discovery
+are unchanged from M17.
+
+| Suite | Discovered | Passed | Not selected | Ignored |
+| --- | ---: | ---: | ---: | ---: |
+| coretests | 2,852 | 2,843 | 7 | 2 |
+| alloctests | 1,481 | 1,478 | 3 | 0 |
+| alloctests-internal | 327 | 326 | 1 | 0 |
+| c-str-alloc-error | 1 | 1 | 0 | 0 |
+| vec-deque-alloc-error | 1 | 1 | 0 | 0 |
+| **Total** | **4,662** | **4,649** | **11** | **2** |
+
+The unselected cases are the four previously diagnosed by-value unsized FnOnce
+failures and seven native slice timeouts. All 177 f16/f128 candidates from
+M16 now pass. Their bodies, assertions and input sizes remain unchanged.
+Dedicated float suites additionally execute on native amd64, with the same
+pinned compiler, checking core operations, every math-method path and zero Go
+allocations. A 15,612-record MPFR corpus verifies binary128 math within one ULP.
+
+### Completed M17 measurement
+
+M17 records **4,636 passing cases**, retaining all 4,472 M16 successes and
+adding 164 f16/f128 cases. Every selected case executes native Rust, fresh
+export, Go build and generated Go. The completed run takes 1,763.22 seconds,
+with no regression or timeout. Its report is
+`.cache/upstream/arm64/soft-float-promotion-report.json`.
+
+| Suite | Discovered | Passed | Not selected | Ignored |
+| --- | ---: | ---: | ---: | ---: |
+| coretests | 2,852 | 2,830 | 20 | 2 |
+| alloctests | 1,481 | 1,478 | 3 | 0 |
+| alloctests-internal | 327 | 326 | 1 | 0 |
+| c-str-alloc-error | 1 | 1 | 0 | 0 |
+| vec-deque-alloc-error | 1 | 1 | 0 | 0 |
+| **Total** | **4,662** | **4,636** | **24** | **2** |
+
+The separate 177-case float scan passes 164 and identifies 13 cases requiring
+`Context.Binary128Math`: binary128 transcendental math has no built-in
+implementation and fails explicitly without a provider. The four by-value
+unsized FnOnce failures and seven native slice timeouts from M16 were not
+selected in M17. Source bodies, assertions and input sizes are unchanged.
+Evidence is `.cache/upstream/arm64/soft-float-scan-report.json`.
+
+Native reference builds now add `-Cllvm-args=-global-isel=0` to avoid the pinned
+AArch64 debug backend's f16 FMA double rounding (LLVM #98389) and f16-to-i128
+narrowing. Debug assertions and MIR optimization settings remain unchanged.
+The changed flags are recorded in baseline context. The migration preserves
+all prior successes and identical discovery, after replaying every retained
+case; `.cache/upstream/arm64/soft-float-baseline-migration.json` records the
+before/after hashes and exact context change. Compiler/source/dependency
+upgrades still require explicit baseline migration.
+
+The dedicated float fixture compares 15,136 records against SelectionDAG debug
+and optimized native references, plus independent exact-arithmetic tests and
+raw-zero warmed Go allocations. Native execution is arm64; generated code and
+metadata compile for both targets. Native amd64 replay remains unverified.
+
+### Completed M16 measurement
+
 The completed M16 promotion measures **all 4,662 cases**, records **4,472**
 successes and retains every M15 success. The only added passing case is
 num::floats::mul_add::test_f32, restored with a single-rounding f32 FMA helper.

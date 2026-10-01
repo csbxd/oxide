@@ -66,7 +66,7 @@ func (g *generator) initAPINames(ids []int) {
 			// Primitive names do not need an ADT definition. Missing names for
 			// nominal types cannot safely be replaced with traversal-dependent IDs.
 			switch t.Kind {
-			case "bool", "char", "usize", "isize", "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "f32", "f64", "str", "never":
+			case "bool", "char", "usize", "isize", "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "f16", "f32", "f64", "f128", "str", "never":
 				rust = t.Kind
 			default:
 				g.fail("missing canonical Rust name for public %s type", t.Kind)

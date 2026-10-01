@@ -148,12 +148,16 @@ func TestSqrtLanes(t *testing.T) {
 func testSIMDProgram(t *testing.T, source []byte, check string) {
 	t.Helper()
 	dir := t.TempDir()
+	module, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
 	allocations, err := os.ReadFile(filepath.Join("testdata", "allocations_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name, value := range map[string][]byte{
-		"go.mod":  []byte("module oxide-simd-test\n\ngo 1.27.1\n"),
+		"go.mod":  []byte(fmt.Sprintf("module oxide-simd-test\n\ngo 1.27.1\nrequire github.com/csbxd/oxide/oxide-go v0.0.0\nreplace github.com/csbxd/oxide/oxide-go => %q\n", module)),
 		"simd.go": source, "simd_test.go": []byte(check),
 		"allocations_test.go": allocations,
 	} {
@@ -162,9 +166,9 @@ func testSIMDProgram(t *testing.T, source []byte, check string) {
 		}
 	}
 	for _, arch := range []string{"amd64", "arm64"} {
-		args := []string{"test", "-count=1", "."}
+		args := []string{"test", "-mod=mod", "-count=1", "."}
 		if arch != runtime.GOARCH {
-			args = []string{"test", "-c", "-o", filepath.Join(dir, "simd_"+arch+".test"), "."}
+			args = []string{"test", "-mod=mod", "-c", "-o", filepath.Join(dir, "simd_"+arch+".test"), "."}
 		}
 		cmd := exec.Command("go", args...)
 		cmd.Dir = dir

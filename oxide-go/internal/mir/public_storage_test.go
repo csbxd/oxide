@@ -47,6 +47,9 @@ func TestStaticStorage(t *testing.T) {
 		{ID: 27, Name: "core::mem::ManuallyDrop<dyn test::Marker>", Kind: "aggregate", Align: 1, Members: [][]TypeMember{{{Name: "value", Type: 26}}}},
 		{ID: 28, Name: "test::PackedDST", Kind: "aggregate", Align: 2, Pack: 2, Members: [][]TypeMember{{{Name: "head", Type: 11, Public: true}, {Name: "tail", Type: 27, Offset: 2, Public: true}}}},
 		{ID: 29, Name: "test::AlignedDST", Kind: "aggregate", Align: 8, Members: [][]TypeMember{{{Name: "head", Type: 1, Public: true}, {Name: "tail", Type: 27, Offset: 8, Public: true}}}},
+		{ID: 30, Name: "f16", Kind: "f16", Sized: true, Size: 2, Align: 2},
+		{ID: 31, Name: "f128", Kind: "f128", Sized: true, Size: 16, Align: 16},
+		{ID: 32, Name: "test::PackedFloat", Kind: "aggregate", Sized: true, Size: 19, Align: 1, Pack: 1, Members: [][]TypeMember{{{Name: "half", Type: 30, Offset: 1, Public: true}, {Name: "quad", Type: 31, Offset: 3, Public: true}}}},
 	}
 	p := &Program{APITypes: types, Types: types}
 	for _, entry := range []struct {
@@ -55,6 +58,7 @@ func TestStaticStorage(t *testing.T) {
 	}{{5, "Owner"}, {7, "Zero"}, {9, "Large"}, {10, "Text"}, {14, "Vector"}, {16, "Words"}, {17, "WordRef"}, {18, "WordMut"}, {19, "Array"}, {21, "PackedChar"}, {22, "Niche"}, {23, "Wide"}, {24, "Single"}, {25, "PackedWide"}, {26, "Dynamic"}, {27, "DynamicTail"}, {28, "PackedDST"}, {29, "AlignedDST"}} {
 		p.PublicTypes = append(p.PublicTypes, PublicType{Name: "test::" + entry.name, Type: entry.id})
 	}
+	p.PublicTypes = append(p.PublicTypes, PublicType{Name: "test::PackedFloat", Type: 32})
 	g := &generator{p: p, types: make(map[int]*Type), functions: make(map[string]*Function), names: make(map[string]string)}
 	for i := range p.Types {
 		g.types[p.Types[i].ID] = &p.Types[i]
@@ -173,6 +177,9 @@ func TestGeneratedStorage(t *testing.T) {
   ch:=New__Char(ctx);ch.Mut().Set('界');if ch.Ref().Get()!='界'{t.Fatal("char")}
   packedChar:=New__PackedChar(ctx);packedChar.Mut().Field__Letter().Set(0x1f600);if packedChar.Ref().Read__Letter()!=0x1f600{t.Fatal("packed char")}
   f:=New__F32(ctx);f.Mut().Set(math.Float32frombits(0x80000000));if math.Float32bits(f.Ref().Get())!=0x80000000{t.Fatal("negative zero")}
+  half:=New__F16(ctx);half.Mut().Set(0x7c01);if half.Ref().Get()!=0x7c01 || half.Addr()%2!=0 {t.Fatal("f16 storage")}
+  quad:=New__F128(ctx);bits128:=oxide.F128{Lo:1,Hi:0xffff000000000000};quad.Mut().Set(bits128);if quad.Ref().Get()!=bits128 || quad.Addr()%16!=0 {t.Fatal("f128 storage")}
+  packedFloat:=New__PackedFloat(ctx);packedFloat.Mut().Field__Half().Set(0x8000);packedFloat.Mut().Field__Quad().Set(bits128);if packedFloat.Ref().Read__Half()!=0x8000 || packedFloat.Ref().Read__Quad()!=bits128 {t.Fatal("packed floats")}
   wide:=New__U128(ctx);want:=oxide.U128{Lo:1,Hi:99};wide.Mut().Set(want);if wide.Ref().Get()!=want || wide.Addr()%16!=0 {t.Fatal("wide")}
   packedWide:=New__PackedWide(ctx);packedWide.Mut().Field__Wide().Set(want);if packedWide.Ref().Read__Wide()!=want{t.Fatal("packed u128")}
   region:=ctx.Alloc(384,64);vtable:=ctx.Alloc(24,8);testWriteBits(vtable+8,8,oxide.U128{Lo:64});testWriteBits(vtable+16,8,oxide.U128{Lo:64})

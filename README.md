@@ -56,6 +56,32 @@ encode their UFCS paths. Name collisions fail explicitly.
 it does not establish translation support. Checked integer arithmetic is the
 default; `-overflow-checks=false` selects the unchecked Rust profile.
 
+`f16` and `f128` use `oxide.F16` (raw uint16 bits) and `oxide.F128`
+(`Lo`, `Hi` words). Numeric construction uses helpers such as
+`oxide.F64ToF16(1.5)` and `oxide.U128ToF128(value)`; converting a Go integer
+directly to `oxide.F16` constructs a bit pattern. Arithmetic, FMA, sqrt and
+casts preserve the Rust widths, rounding and saturation without Go heap
+allocation. Rust storage retains compiler-provided alignment, including 16
+for f128. The generated public views also support packed float fields.
+
+Binary128 transcendental math is built in, using fixed-size 237-bit
+intermediates and a full-range integer trigonometric reduction. Generated
+programs require neither Cgo nor MPFR. An optional provider can override it
+through `ctx.Binary128Math`, with signature:
+
+```go
+func(ctx *oxide.Context, operation string, x, y oxide.F128) (oxide.F128, int32)
+```
+
+Unary operations receive a zero `y`. Names are `exp`, `exp2`, `expm1`, `log`,
+`log2`, `log10`, `log1p`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`,
+`cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `cbrt`, `tgamma`, `erf`, `erfc`,
+`pow`, `atan2`, `hypot` and `lgamma`. Only `lgamma` uses the second result
+(the sign). The provider must preserve binary128 precision and implement
+the requested function or fail explicitly. An unset provider uses the
+built-in implementation. This extension is separate from the built-in
+arithmetic/FMA/sqrt implementation.
+
 ## Calling Rust from Go
 
 Primitive parameters/results use Go scalar types. Each Rust type also gets a
@@ -211,16 +237,17 @@ success together with selected candidates, or the full inventory when no
 selection is supplied, before adding successes. The Go test entry is enabled by
 `OXIDE_RUST_TESTS=1`; direct `check` invocation is suitable for CI.
 
-The Linux arm64 baseline contains 4,472 independently verified cases:
-2,666 `coretests`, 1,478 main `alloctests`, 326 internal alloc cases and both
-allocation-error auxiliary targets. The complete M16 run measures all 4,662
-cases and retains every prior success. It restores f32 fused multiply-add
-with single rounding, verified by exact arithmetic and native Rust comparisons.
-The remaining outcomes are 176 unsupported f16/f128 ABI cases, four unsized
-FnOnce generation failures, one native assertion failure, seven native timeouts
-and two upstream ignored cases. Test bodies, assertions and input sizes remain
-unchanged. Native execution is arm64; metadata and generated-code compilation
-cover both targets. See
+The Linux arm64 baseline contains 4,649 independently verified cases:
+2,843 `coretests`, 1,478 main `alloctests`, 326 internal alloc cases and both
+allocation-error auxiliary targets. M17/M18 retain all 4,472 previous successes
+and add all 177 f16/f128 candidates, including the correct f16 FMA result for
+LLVM #98389 and the binary128 transcendental functions. Native reference
+builds disable GlobalISel while retaining debug assertions. The four unsized
+FnOnce failures and seven native timeouts from M16 were not remeasured in
+these promotions. Two upstream cases remain ignored. Source bodies, assertions
+and input sizes remain unchanged. The upstream baseline executes on arm64;
+dedicated float suites execute on both native arm64 and amd64, with 15,136
+core records, 1,800 math-method records and independent MPFR checks. See
 [MILESTONES.md](MILESTONES.md) for the tested subsets and current verification.
 
 Native references must execute on the same target as generated Go. Renderer

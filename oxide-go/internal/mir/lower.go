@@ -188,7 +188,9 @@ func (g *generator) assign(dst location, raw json.RawMessage) {
 		x, t := g.operand(a[1])
 		switch op {
 		case "Neg":
-			if g.typ(t).Kind == "i128" {
+			if softFloat(g.typ(t).Kind) {
+				store("oxide." + strings.ToUpper(g.typ(t).Kind) + "Neg(" + x + ")")
+			} else if g.typ(t).Kind == "i128" {
 				store("oxide.I128SubValue(oxide.I128{}," + x + ")")
 			} else {
 				store("-(" + x + ")")
@@ -232,6 +234,12 @@ func (g *generator) assign(dst location, raw json.RawMessage) {
 		kind, _ := variant(a[0])
 		x, from := g.operand(a[1])
 		srcType, dstType := g.typ(from), g.typ(dst.typ)
+		if kind == "IntToFloat" || kind == "FloatToFloat" || kind == "FloatToInt" {
+			if expr, ok := g.softFloatCast(x, from, dst.typ); ok {
+				store(expr)
+				break
+			}
+		}
 		if kind == "PtrToPtr" && srcType.Size == dstType.Size && srcType.Size > 8 {
 			srcPlace := g.operandPlace(a[1])
 			g.line("copy(unsafe.Slice((*byte)(%s),%d),unsafe.Slice((*byte)(%s),%d))", dst.address, dstType.Size, srcPlace.address, srcType.Size)
@@ -398,6 +406,9 @@ func (g *generator) operandPlace(raw json.RawMessage) location {
 
 func (g *generator) binary(op, l, r string, typ int) string {
 	t := g.typ(typ)
+	if softFloat(t.Kind) {
+		return g.softFloatBinary(op, l, r, t.Kind)
+	}
 	if op == "Rem" && (t.Kind == "f32" || t.Kind == "f64") {
 		return fmt.Sprintf("%s(math.Mod(float64(%s),float64(%s)))", g.goType(typ), l, r)
 	}
@@ -906,6 +917,10 @@ func (g *generator) intrinsicCall(bb int, name string, args []json.RawMessage, d
 		g.line("goto bb%d", *target)
 	}
 	if g.x86IntegerIntrinsic(name, args, dst) || g.x86FloatIntrinsic(name, args, dst) {
+		goToTarget()
+		return
+	}
+	if g.softFloatIntrinsic(name, args, dst) {
 		goToTarget()
 		return
 	}

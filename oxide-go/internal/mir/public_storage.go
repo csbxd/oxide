@@ -180,7 +180,7 @@ func (g *generator) emitStaticScalar(id int) {
 		scalar, size = "uintptr", 8
 	case "isize":
 		scalar, size = "int64", 8
-	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64":
+	case "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f16", "f32", "f64":
 		scalar = g.scalar(t)
 		switch t.Kind[1:] {
 		case "8":
@@ -192,7 +192,7 @@ func (g *generator) emitStaticScalar(id int) {
 		case "64":
 			size = 8
 		}
-	case "u128", "i128":
+	case "u128", "i128", "f128":
 		scalar, size = g.scalar(t), 16
 	default:
 		return

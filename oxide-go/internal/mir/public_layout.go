@@ -38,13 +38,13 @@ func (g *generator) publicLayoutScalar(t *Type) string {
 	switch scalar {
 	case "bool", "int8", "uint8":
 		size, align = 1, 1
-	case "int16", "uint16":
+	case "int16", "uint16", "oxide.F16":
 		size, align = 2, 2
 	case "int32", "uint32", "float32":
 		size, align = 4, 4
 	case "int64", "uint64", "float64", "uintptr":
 		size, align = 8, 8
-	case "oxide.I128", "oxide.U128":
+	case "oxide.I128", "oxide.U128", "oxide.F128":
 		size, align = 16, 8
 	case "":
 		return ""

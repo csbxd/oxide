@@ -438,10 +438,14 @@ impl<'tcx> Exporter<'tcx> {
                                                 | "carryless_mul"
                                                 | "unchecked_funnel_shl"
                                                 | "unchecked_funnel_shr"
+                                                | "minimumf16"
                                                 | "minimumf32"
                                                 | "minimumf64"
+                                                | "minimumf128"
+                                                | "maximumf16"
                                                 | "maximumf32"
                                                 | "maximumf64"
+                                                | "maximumf128"
                                         )
                                     ) =>
                                 {

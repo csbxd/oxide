@@ -45,10 +45,17 @@ func LibcAcosh(c *Context, x float64) float64   { return libc.Xacosh(c.libc(), x
 func LibcAcoshf(c *Context, x float32) float32  { return libc.Xacoshf(c.libc(), x) }
 func LibcAsinh(c *Context, x float64) float64   { return libc.Xasinh(c.libc(), x) }
 func LibcAsinhf(c *Context, x float32) float32  { return libc.Xasinhf(c.libc(), x) }
+func LibcAsinf(c *Context, x float32) float32   { return libc.Xasinf(c.libc(), x) }
+func LibcAtanf(c *Context, x float32) float32   { return libc.Xatanf(c.libc(), x) }
+func LibcSinhf(c *Context, x float32) float32   { return libc.Xsinhf(c.libc(), x) }
+func LibcTanhf(c *Context, x float32) float32   { return libc.Xtanhf(c.libc(), x) }
+func LibcErff(c *Context, x float32) float32    { return libc.Xerff(c.libc(), x) }
+func LibcErfcf(c *Context, x float32) float32   { return libc.Xerfcf(c.libc(), x) }
 func LibcTgamma(c *Context, x float64) float64  { return libc.Xtgamma(c.libc(), x) }
 func LibcTgammaf(c *Context, x float32) float32 { return libc.Xtgammaf(c.libc(), x) }
 func LibcCosh(c *Context, x float64) float64    { return libc.Xcosh(c.libc(), x) }
 func LibcCoshf(c *Context, x float32) float32   { return libc.Xcoshf(c.libc(), x) }
+func LibcCbrtf(c *Context, x float32) float32   { return libc.Xcbrtf(c.libc(), x) }
 func LibcLgammaR(c *Context, x float64, sign uintptr) float64 {
 	return libc.Xlgamma_r(c.libc(), x, sign)
 }

@@ -121,11 +121,17 @@ func (g *generator) simdIntrinsic(name string, args []json.RawMessage, dst Place
 		if ae != de || an != dn {
 			g.fail("%s layout", name)
 		}
-		if name == "simd_fabs" && g.typ(ae).Kind != "f32" && g.typ(ae).Kind != "f64" {
+		if name == "simd_fabs" && !floatKind(g.typ(ae).Kind) {
 			g.fail("simd_fabs floating-point lane type")
 		}
 		value := "-(" + av + ")"
 		switch k := g.typ(ae).Kind; k {
+		case "f16", "f128":
+			fn := "Neg"
+			if name == "simd_fabs" {
+				fn = "Abs"
+			}
+			value = "oxide." + strings.ToUpper(k) + fn + "(" + av + ")"
 		case "f32", "f64":
 			width := g.typ(ae).Size * 8
 			op := "^"
@@ -143,26 +149,37 @@ func (g *generator) simdIntrinsic(name string, args []json.RawMessage, dst Place
 		return
 	case "simd_reduce_all", "simd_reduce_any":
 		arity(1)
-		init, expr := "true", "r && ("+av+" != 0)"
+		condition := g.binary("Ne", av, g.zero(ae), ae)
+		init, expr := "true", "r && "+condition
 		if name == "simd_reduce_any" {
-			init, expr = "false", "r || ("+av+" != 0)"
+			init, expr = "false", "r || "+condition
 		}
 		g.line("{ r:=%s; for i:=uintptr(0); i<%d; i++ { r=%s }; %s=r }", init, an, expr, d.read())
 		return
-	case "simd_reduce_max":
+	case "simd_reduce_max", "simd_reduce_min":
 		arity(1)
-		g.line("{ r:=%s; for i:=uintptr(1); i<%d; i++ { r=max(r,%s) }; %s=r }", lane(a, ae, "0"), an, av, d.read())
-		return
-	case "simd_reduce_min":
-		arity(1)
-		g.line("{ r:=%s; for i:=uintptr(1); i<%d; i++ { r=min(r,%s) }; %s=r }", lane(a, ae, "0"), an, av, d.read())
+		fn, op := "Min", "Lt"
+		if name == "simd_reduce_max" {
+			fn, op = "Max", "Gt"
+		}
+		kind := g.typ(ae).Kind
+		if kind == "i128" || kind == "u128" {
+			g.line("{ r:=%s; for i:=uintptr(1); i<%d; i++ { if %s { r=%s } }; %s=r }", lane(a, ae, "0"), an, g.binary(op, av, "r", ae), av, d.read())
+			return
+		}
+		if softFloat(kind) {
+			fn = "oxide." + strings.ToUpper(kind) + fn
+		} else {
+			fn = strings.ToLower(fn)
+		}
+		g.line("{ r:=%s; for i:=uintptr(1); i<%d; i++ { r=%s(r,%s) }; %s=r }", lane(a, ae, "0"), an, fn, av, d.read())
 		return
 	case "simd_reduce_or":
 		arity(1)
-		if g.typ(ae).Kind == "f32" || g.typ(ae).Kind == "f64" {
+		if floatKind(g.typ(ae).Kind) {
 			g.fail("simd_reduce_or integer lane type")
 		}
-		g.line("{ var r %s; for i:=uintptr(0); i<%d; i++ { r|=%s }; %s=r }", g.goType(ae), an, av, d.read())
+		g.line("{ var r %s; for i:=uintptr(0); i<%d; i++ { r=%s }; %s=r }", g.goType(ae), an, g.binary("BitOr", "r", av, ae), d.read())
 		return
 	case "simd_select":
 		arity(3)
@@ -171,11 +188,12 @@ func (g *generator) simdIntrinsic(name string, args []json.RawMessage, dst Place
 		be, bn := g.vectorInfo(b.typ)
 		ce, cn := g.vectorInfo(c.typ)
 		de, dn := g.vectorInfo(d.typ)
-		if an != bn || an != cn || an != dn || be != ce || be != de || g.typ(ae).Size != g.typ(be).Size {
+		if an != bn || an != cn || an != dn || be != ce || be != de {
 			g.fail("SIMD select layout")
 		}
 		for i := 0; i < dn; i++ {
-			g.line("if %s!=0 { %s=%s } else { %s=%s }", lane(a, ae, fmt.Sprint(i)), lane(d, de, fmt.Sprint(i)), lane(b, be, fmt.Sprint(i)), lane(d, de, fmt.Sprint(i)), lane(c, ce, fmt.Sprint(i)))
+			condition := g.binary("Ne", lane(a, ae, fmt.Sprint(i)), g.zero(ae), ae)
+			g.line("if %s { %s=%s } else { %s=%s }", condition, lane(d, de, fmt.Sprint(i)), lane(b, be, fmt.Sprint(i)), lane(d, de, fmt.Sprint(i)), lane(c, ce, fmt.Sprint(i)))
 		}
 		return
 	case "simd_extract":
@@ -214,17 +232,25 @@ func (g *generator) simdIntrinsic(name string, args []json.RawMessage, dst Place
 		if an > 64 || g.scalar(g.typ(d.typ)) == "" {
 			g.fail("simd_bitmask result width")
 		}
-		g.line("{ var r uint64; for i:=uintptr(0); i<%d; i++ { r|=((uint64(%s)>>%d)&1)<<i }; %s=%s(r) }", an, av, g.typ(ae).Size*8-1, d.read(), g.goType(d.typ))
+		top := fmt.Sprintf("uint64(%s)>>%d", av, g.typ(ae).Size*8-1)
+		if kind := g.typ(ae).Kind; kind == "i128" || kind == "u128" {
+			top = "(" + av + ").Hi>>63"
+		}
+		g.line("{ var r uint64; for i:=uintptr(0); i<%d; i++ { r|=((%s)&1)<<i }; %s=%s(r) }", an, top, d.read(), g.goType(d.typ))
 		return
 	}
 	de, dn := g.vectorInfo(d.typ)
 	dv := lane(d, de, "i")
 	if name == "simd_fsqrt" {
 		arity(1)
-		if an != dn || ae != de || (g.typ(ae).Kind != "f32" && g.typ(ae).Kind != "f64") {
+		if an != dn || ae != de || !floatKind(g.typ(ae).Kind) {
 			g.fail("simd_fsqrt floating-point lane layout")
 		}
-		g.line("for i:=uintptr(0); i<%d; i++ { %s=%s(math.Sqrt(float64(%s))) }", dn, dv, g.goType(de), av)
+		if k := g.typ(ae).Kind; softFloat(k) {
+			g.line("for i:=uintptr(0); i<%d; i++ { %s=oxide.%sSqrt(%s) }", dn, dv, strings.ToUpper(k), av)
+		} else {
+			g.line("for i:=uintptr(0); i<%d; i++ { %s=%s(math.Sqrt(float64(%s))) }", dn, dv, g.goType(de), av)
+		}
 		return
 	}
 	if name == "simd_cast" {
@@ -233,7 +259,11 @@ func (g *generator) simdIntrinsic(name string, args []json.RawMessage, dst Place
 			g.fail("simd_cast lane count")
 		}
 		// Rust simd_cast requires float-to-int inputs to be in range.
-		g.line("for i:=uintptr(0); i<%d; i++ { %s=%s(%s) }", dn, dv, g.goType(de), av)
+		value, ok := g.softFloatCast(av, ae, de)
+		if !ok {
+			value = g.goType(de) + "(" + av + ")"
+		}
+		g.line("for i:=uintptr(0); i<%d; i++ { %s=%s }", dn, dv, value)
 		return
 	}
 	if name == "simd_shuffle" {
@@ -274,11 +304,39 @@ func (g *generator) simdIntrinsic(name string, args []json.RawMessage, dst Place
 		return
 	}
 	compare := strings.Contains(" simd_eq simd_ne simd_lt simd_le simd_gt simd_ge ", " "+name+" ")
+	if softFloat(g.typ(ae).Kind) {
+		if ae != be {
+			g.fail("%s lane types", name)
+		}
+		operation := map[string]string{"simd_add": "Add", "simd_sub": "Sub", "simd_mul": "Mul", "simd_div": "Div", "simd_eq": "Eq", "simd_ne": "Ne", "simd_lt": "Lt", "simd_le": "Le", "simd_gt": "Gt", "simd_ge": "Ge"}[name]
+		if operation == "" {
+			g.fail("SIMD floating-point operation %s", name)
+		}
+		expr := g.binary(operation, av, bv, ae)
+		if compare {
+			mask := "^" + g.goType(de) + "(0)"
+			if g.typ(de).Kind == "i128" || g.typ(de).Kind == "u128" {
+				mask = g.goType(de) + "{Lo:^uint64(0),Hi:^uint64(0)}"
+			}
+			g.line("for i:=uintptr(0); i<%d; i++ { if %s { %s=%s } else { %s=%s } }", dn, expr, dv, mask, dv, g.zero(de))
+		} else {
+			if ae != de {
+				g.fail("%s result lane type", name)
+			}
+			g.line("for i:=uintptr(0); i<%d; i++ { %s=%s }", dn, dv, expr)
+		}
+		return
+	}
 	if compare {
 		g.line("for i:=uintptr(0); i<%d; i++ { if %s %s %s { %s=^%s(0) } else { %s=0 } }", dn, av, op, bv, dv, g.goType(de), dv)
 	} else {
 		expr := fmt.Sprintf("(%s %s %s)", av, op, bv)
-		if kind := g.typ(de).Kind; kind == "f32" || kind == "f64" {
+		kind := g.typ(de).Kind
+		if (kind == "i128" || kind == "u128") && (name == "simd_and" || name == "simd_or" || name == "simd_xor") {
+			operation := map[string]string{"simd_and": "BitAnd", "simd_or": "BitOr", "simd_xor": "BitXor"}[name]
+			expr = g.binary(operation, av, bv, ae)
+		}
+		if kind == "f32" || kind == "f64" {
 			expr = g.goType(de) + expr
 		}
 		g.line("for i:=uintptr(0); i<%d; i++ { %s=%s }", dn, dv, expr)

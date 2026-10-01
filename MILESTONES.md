@@ -2,6 +2,156 @@
 
 Snapshot: 2026-10-01. Targets: **linux/amd64 and linux/arm64**.
 
+## SIMD comparison-mask consumers (M18 follow-up)
+
+The f128 comparison mask now remains usable through select, all/any,
+bitmask extraction, bitwise combinations and integer reductions. These
+operations use typed zero/comparison/bitwise helpers for I128/U128 rather
+than native Go integer operators; bitmask extraction reads bit 127 from
+the high word. Select accepts masks whose element width differs from the
+selected data, as permitted by Rust, and snapshots operands before writes.
+
+Generated-code regressions cover signed/unsigned 128-bit masks, narrower
+masks, all truth patterns, NaN comparison, selected NaN payloads/signed zero,
+destination aliasing, mixed-width selection and both words of an integer
+reduction. A fresh Rust-to-Go fixture verifies all relevant intrinsic paths
+and 1,024 native arm64 result records with zero warmed Go allocations and
+restored Context frames; generated code compiles for amd64 and arm64.
+
+## Built-in binary128 transcendental math (M18)
+
+The 13 binary128 math cases left open by M17 now pass with the default
+runtime. No user provider or native C library is needed. The runtime uses
+the fixed-size binary256 arithmetic and selected functions from
+[`github.com/shogo82148/floats` v0.4.0](https://github.com/shogo82148/floats/tree/v0.4.0)
+and `github.com/shogo82148/ints` v0.1.3. Inputs extend exactly to 237-bit
+significands and results round back to binary128; the existing core
+arithmetic/FMA/sqrt implementation is unchanged. `Context.Binary128Math`
+remains an optional override of these built-in operations.
+
+Exp/log families use generated coefficients and Horner evaluation with fused
+arithmetic. Inverse hyperbolic functions avoid cancellation through log1p;
+erfc computes small tails directly with a continued fraction. Pow preserves
+small differences from one even with huge exponents and handles signed
+zero/infinity and negative bases explicitly. Gamma and inverse-trigonometric
+functions use the wider library implementations, with corrected lgamma
+sign/domain handling. Binary16's remaining C math entries (including cbrt,
+asin, atan, sinh, tanh, erf and erfc) use the pinned modernc libc bodies.
+
+Trigonometric reduction multiplies the full binary128 significand by a
+16,896-bit expansion of 2/pi. The generator verifies that the expansion is
+the exact integer floor using directed MPFR bounds. Continued-fraction
+convergents then certify a residual lower bound for every binary128 exponent
+and every 113-bit significand. This covers large finite arguments which
+cannot be reduced correctly using a rounded floating-point pi.
+Both the constant generator and independent test oracle live in
+`oxide-go/runtime/testdata`; neither C nor MPFR is linked into generated Go.
+
+The checked-in MPFR corpus covers **15,612 cases across 27 operations**,
+including the full exponent range, dense ordinary inputs, subnormal tails,
+NaNs/infinities/zero signs, near-one huge powers and random large-angle
+reduction. All measured results are within **1 ULP**; special-value classes
+and defined signs are checked separately. The oracle uses MPFR's ternary
+inexact result and subnormalize operation to prevent reference double
+rounding. This is measured numerical coverage, not a claim that every
+transcendental result is correctly rounded for every possible input.
+
+A new Rust/Go fixture exercises all 30 math method paths for both float
+widths, with **1,800 records** and raw-zero warmed Go allocations. It invokes
+the real compiler-provided methods, including C-boundary methods, sin_cos,
+arbitrary-base log and lgamma's sign pointer. Rust's unspecified
+transcendental precision permits small differences; native results are
+compared within four ULP, while the independent runtime gate uses one ULP.
+The sign of Gamma at negative integer poles and -infinity is undefined and
+is not compared across libc implementations. Signed zero remains checked.
+
+Both native targets pass the runtime tests, the 15,136-record core float
+fixture and the 1,800-record math-method fixture, including their raw-zero
+Go allocation and frame checks. The amd64 references use the matching
+nightly-2026-09-15 compiler and LLVM 23.1.1, installed in an isolated test
+directory on the supplied x86_64 Linux machine.
+
+Full upstream promotion reran all **4,636 prior successes plus 13 additions:
+4,649 passed** in 1,787.90 seconds with no regression or timeout. Compiler,
+source, adapter, reference flags and discovery context are unchanged from
+M17. The baseline now contains 2,843 core, 1,478 main alloc, 326 internal alloc
+and both auxiliary successes. The remaining four unsized FnOnce failures
+and seven native timeouts are outside this float change and were not selected;
+two upstream cases remain ignored. Evidence: `.cache/quadmath/`,
+`.cache/float-math-conformance/`,
+`.cache/upstream/arm64/f128-math-scan-report.json` and
+`.cache/upstream/arm64/f128-math-promotion-report.json`.
+
+## Binary16 and binary128 (M17)
+
+`f16` and `f128` now have exact 2-byte and 16-byte IEEE representations,
+including scalar ABI wrappers/constants, public storage, packed fields,
+transmute and indirect calls. rustc still supplies alignment and field offsets;
+addressable binary128 storage uses the existing aligned Context frames.
+Go's by-value `F128` representation has alignment 8, not Rust's alignment 16.
+
+The runtime implements arithmetic, remainder, ordered/unordered comparisons,
+negation, abs/copysign, min/max, integral rounding, square root, fused
+multiply-add, integer powers, all float-width casts and saturating integer
+casts through 128 bits. Binary128 uses fixed-width integer significands and
+256-bit products/FMA sums, with guard/sticky bits and one final rounding.
+It never narrows arithmetic to f64 and never allocates arbitrary-precision
+objects. Binary16 operations use wider arithmetic with direct binary16
+rounding. SIMD arithmetic/comparisons, unary operations, square root,
+conversions and min/max reductions use the same numeric helpers.
+Rust's remaining core methods, parsing and formatting retain their MIR bodies.
+
+Correctness is defined by Rust's semantics, not by reproducing compiler bugs.
+[LLVM #98389](https://github.com/llvm/llvm-project/issues/98389) is covered by
+the exact `0x520b * 0x00e9 + 0x2ff6 -> 0x3001` FMA regression; the incorrect
+f32 intermediate produces `0x3000`. Native default debug also reproduces an
+arm64 f16-to-i128 narrowing/sign-extension defect. Reference builds now use
+`-Cllvm-args=-global-isel=0`, preserving debug assertions and MIR while changing
+only native instruction selection. The dedicated differential test compares
+SelectionDAG debug and optimized references before checking generated Go.
+The pinned native software copysign can quiet a signaling f16 NaN even on
+SelectionDAG; that probe uses the specified raw-bit sign operation as its
+oracle. Generated copysign preserves the signaling bit and payload.
+
+Validation includes all 65,536 f16 bit patterns, every finite positive f16
+midpoint and adjacent f64 values, 20,000 random f16 FMA triples, exact 66,000-bit
+reference arithmetic for f128 boundary/random operations, direct narrowing
+and integer-cast checks, and negative integer powers whose result is subnormal
+despite overflow of the corresponding positive power. The Rust/Go fixture
+compares **15,136 records** (172 cases x 88 inputs), including 16-byte alignment,
+packed loads, NaN payloads and ABI-compatible transparent function pointers.
+Both targets compile; native arm64 executes. Warmed runtime and generated-code
+checks measure zero Go objects/bytes and restored Context frames. Existing
+12,644-record numeric tests, default Go tests, both-target compiler metadata,
+and 136 upstream-runner tests pass.
+
+The 177 previously blocked float candidates were rescanned with unchanged
+upstream bodies and assertions: **164 pass**, including 66 f16 and 55 f128
+float-method cases, 19 decimal-to-float, 15 float-to-decimal, six round-trip
+and three conversion cases. The remaining **13 require a binary128 math
+provider**: acosh, asinh, atanh, exp, exp2, gamma, ln, ln_gamma, log, log2,
+log10, powf and real_consts. They fail explicitly without a provider.
+Binary128 transcendental functions are not claimed as built-in support.
+`Context.Binary128Math` accepts full binary128 bits, supplies unary/binary
+operations and the lgamma sign, and is tested for full-bit transport and zero
+dispatch allocations. Binary16 transcendental intrinsics use wider Go math;
+their precision remains unspecified as in Rust's API contract.
+
+The new reference flags change the recorded upstream context. Full promotion
+reran **all 4,472 prior successes plus 164 additions: 4,636 passed** in
+1,763.22 seconds, with no regression or timeout. The baseline was migrated
+only after checking that every old success remains, discovery is identical,
+and the only context change is the native instruction-selection flag.
+There are 2,830 core, 1,478 main alloc, 326 internal alloc and two auxiliary
+successes. Promotion leaves 24 cases unselected and two ignored: the 13 math
+provider cases were measured separately; the four unsized FnOnce failures
+and seven native slice timeouts remain historical, not remeasured by M17.
+Evidence:
+`.cache/upstream/arm64/soft-float-scan-report.json`,
+`.cache/upstream/arm64/soft-float-promotion-report.json`,
+`.cache/upstream/arm64/soft-float-baseline-migration.json` and
+`.cache/soft-float-conformance/`. Native amd64 replay remains unverified.
+
 ## Single-rounding f32 fused multiply-add (M16)
 
 The unchanged num::floats::mul_add::test_f32 case passes after adding the
@@ -517,6 +667,8 @@ compatibility fallback.
 | M14: Coroutine discriminants | 4,470 passing cases on native linux/arm64 | all 4,467 M13 successes retained; three join failures restored; compiler-derived state tags, nested await, pending cancellation and 12,099 differential records verified |
 | M15: C variadic formatting | 4,471 passing cases on native linux/arm64 | all 4,470 M14 successes retained; real printf/snprintf variadic calls, 27 libc records and raw-zero indirect argument storage verified |
 | M16: single-rounding f32 FMA | 4,472 passing cases on native linux/arm64 | all 4,471 M15 successes retained; complete 4,662-case audit; f32 FMA restored; 12,644 numeric records and 52,820 exact finite comparisons verified; 180 generation failures, eight native issues and two ignored cases remain |
+| M17: f16/f128 | 4,636 passing cases on native linux/arm64 | all 4,472 M16 successes retained plus 164 additions; exact layouts, arithmetic/FMA/sqrt/casts, 15,136 differential records and raw-zero allocations; correct native reference selector and validated context migration; 13 binary128 transcendental cases require an explicit math provider |
+| M18: binary128 math | 4,649 passing cases on native linux/arm64 | all 4,636 M17 successes retained plus the 13 remaining math cases; built-in fixed-precision math, 15,612 MPFR records within one ULP, 1,800 method records and 15,136 core float records on both native targets, full-range trigonometric reduction and raw-zero Go allocations |
 
 The M4 results describe the two-observer acceptance at commit `6989058`.
 M5 used a fixture that re-exported the upstream library and four test observers.
@@ -560,7 +712,7 @@ blanket implementations and all generic instantiations are not a finite root set
 | --- | --- | --- |
 | fixed-width integers, bool, char, usize/isize | verified subset | differential arithmetic and bit-pattern tests; not every intrinsic |
 | i128/u128 | verified subset | casts, unary/bitwise ops, checked multiplication, masked shifts, comparisons, switches, signed/unsigned division/remainder and carrying multiplication; numeric fixture compares native results |
-| floating point | verified subset | f32/f64 ↔ i128/u128, saturation, NaN/infinity, boundary rounding and integer-to-f32 double-rounding; f32/f64 FMA uses single rounding; ordinary scalar/SIMD operations explicitly round per MIR operation to prevent unintended Go fusion, with native f32/f64 counterexamples including signed zero; f16/f128 ABI and general IEEE/math conformance remain open |
+| floating point | verified subset | f16/f32/f64/f128 layouts, arithmetic and casts through i128/u128; single-rounding FMA for all four widths, including LLVM #98389; binary128 uses fixed-width software arithmetic and wider intermediates for built-in transcendental math; explicit per-MIR-operation rounding prevents unintended fusion; exhaustive IEEE/math conformance remains open |
 | repr(Rust), repr(C), packed, aligned structs | verified subset | compiler offsets, packed unaligned access and actual 64-byte-aligned addressable locals |
 | zero-sized values | verified subset | reads/stores do not touch Rust dangling addresses; address-taking is preserved; real zero-sized boxed hook closure succeeds |
 | arrays and subslices | verified subset | element stride, pointer arithmetic, array pattern subslices and transmute use the projected array size |
@@ -590,7 +742,9 @@ not evidence that an entire module is supported.
 | `core::mem` | verified subset | size_of, align_of, offset_of, equal-size transmute; size_of_val/align_of_val for aligned/nested/packed DSTs and packed ManuallyDrop tails; broader MaybeUninit/ManuallyDrop cases pending |
 | `core::ptr` | verified subset | address-of, read/write, add, read_unaligned/write_unaligned and pointer/integer casts; guarded ZST pointer-distance paths compile and preserve Rust's checks; volatile unsupported |
 | `core::num` / primitive integer methods | verified subset | wrapping operations, nonzero niches, 128-bit bit counts/rotations/min/max/exact division/remainder/casts and wide shift operands, signed/unsigned carrying_mul_add at 8/16/32/64/128 bits and disjoint_bitor |
-| `core::f32`, `core::f64` | verified numeric subset | fused multiply-add, integer conversions, explicit per-operation rounding and selected math entries; f32 FMA halfway/subnormal/overflow cases pass native arm64 differential and exact-arithmetic checks; f16/f128 ABI remains unsupported |
+| `core::f16`, `core::f128` | verified numeric subset | exact value ABI/storage, arithmetic/comparisons, FMA, sqrt, integral rounding, casts, sign operations and integer powers; real core MIR supplies remaining methods and formatting/parsing; both targets compile, native arm64 and exact-arithmetic references verify the covered subset |
+| `std::f16`, `std::f128` | verified math subset | built-in exp/log, trig/inverse-trig, hyperbolic/inverse-hyperbolic, cbrt, hypot, powf, gamma/lgamma and erf/erfc; 30 method paths and 1,800 records pass on both native targets; 15,612 MPFR cases check binary128 precision and exceptional values; optional `Context.Binary128Math` overrides the defaults |
+| `core::f32`, `core::f64` | verified numeric subset | fused multiply-add, integer conversions, explicit per-operation rounding and selected math entries; f32 FMA halfway/subnormal/overflow cases pass native arm64 differential and exact-arithmetic checks |
 | `core::char` / `core::unicode` | verified upstream subset on arm64 | to_lowercase, to_uppercase and to_casefold tests pass unchanged, including full Unicode input traversal; broader API support is limited to the passing baseline |
 | `core::option` | verified subset | NonZeroU64/U128 representation and match; Go named-variant construction and String ownership use actual compiler tags/niches; complete Option API not claimed |
 | `core::result` | verified subset | catch results and dropping Err<Box<dyn Any + Send>> execute with native-equivalent payload destruction; direct Go Results preserve nested owners, borrowed results and serde errors; broader Result API coverage pending |

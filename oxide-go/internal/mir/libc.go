@@ -20,8 +20,15 @@ var cFunctions = map[string]cFunction{
 	"acoshf":           {"LibcAcoshf", "float32", "float32"},
 	"asinh":            {"LibcAsinh", "float64", "float64"},
 	"asinhf":           {"LibcAsinhf", "float32", "float32"},
+	"asinf":            {"LibcAsinf", "float32", "float32"},
+	"atanf":            {"LibcAtanf", "float32", "float32"},
+	"sinhf":            {"LibcSinhf", "float32", "float32"},
+	"tanhf":            {"LibcTanhf", "float32", "float32"},
+	"erff":             {"LibcErff", "float32", "float32"},
+	"erfcf":            {"LibcErfcf", "float32", "float32"},
 	"cosh":             {"LibcCosh", "float64", "float64"},
 	"coshf":            {"LibcCoshf", "float32", "float32"},
+	"cbrtf":            {"LibcCbrtf", "float32", "float32"},
 	"tgamma":           {"LibcTgamma", "float64", "float64"},
 	"tgammaf":          {"LibcTgammaf", "float32", "float32"},
 	"lgamma_r":         {"LibcLgammaR", "float64 uintptr", "float64"},
@@ -177,6 +184,9 @@ func (g *generator) cRuntimeFunction(f *Function, params []int, ret int) bool {
 		return true
 	}
 	if g.unwindFunction(f, params, ret) {
+		return true
+	}
+	if g.f128MathFunction(f, params, ret) {
 		return true
 	}
 	if spec, ok := cFunctions[f.Symbol]; ok && !f.Signature.Variadic {

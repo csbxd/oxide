@@ -37,7 +37,11 @@ SUITES = {
     "c-str-alloc-error": ("alloctests", "tests/c_str_alloc_error.rs"),
     "vec-deque-alloc-error": ("alloctests", "tests/vec_deque_alloc_error.rs"),
 }
-FLAGS = ["-Zalways-encode-mir", "-Zmir-opt-level=0", "-Coverflow-checks=yes"]
+# Preserve debug assertions and MIR, but use the correct native instruction
+# selector. AArch64 GlobalISel double-rounds f16 FMA (LLVM #98389) and narrows
+# saturating f16 -> i128/u128 casts. Never use that machine code as an oracle.
+FLAGS = ["-Zalways-encode-mir", "-Zmir-opt-level=0", "-Coverflow-checks=yes",
+         "-Cllvm-args=-global-isel=0"]
 DISCOVERY = r'''
 extern crate test as __oxide_test;
 #[cfg(oxide_discovery)]

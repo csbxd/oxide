@@ -45,7 +45,7 @@ func (g *generator) emitStaticFields(id int) {
 				// place can move its bits into aligned storage before borrowing.
 				if !mutable && unaligned {
 					switch ft.Kind {
-					case "bool", "char", "usize", "isize", "u8", "u16", "u32", "u64", "u128", "i8", "i16", "i32", "i64", "i128", "f32", "f64":
+					case "bool", "char", "usize", "isize", "u8", "u16", "u32", "u64", "u128", "i8", "i16", "i32", "i64", "i128", "f16", "f32", "f64", "f128":
 						g.line("func(v %s) Read__%s() %s { return (%s).Get() }", g.apiRefType(id, false), name, g.goType(f.Type), g.apiRefLiteral(f.Type, true, fmt.Sprintf("v.addr+%d", f.Offset), "0"))
 					}
 					continue

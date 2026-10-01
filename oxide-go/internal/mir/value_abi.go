@@ -40,10 +40,14 @@ func (g *generator) primitive(p Primitive) (string, uint64) {
 	}
 	if p.Float != nil {
 		switch p.Float.Length {
+		case "F16":
+			return "oxide.F16", 2
 		case "F32":
 			return "float32", 4
 		case "F64":
 			return "float64", 8
+		case "F128":
+			return "oxide.F128", 16
 		}
 	}
 	g.fail("unsupported ABI primitive %+v", p)
@@ -103,7 +107,7 @@ func (g *generator) primitiveConstant(p Primitive, data []byte) string {
 		return "math.Float32frombits(" + bits.String() + ")"
 	case "float64":
 		return "math.Float64frombits(" + bits.String() + ")"
-	case "oxide.U128", "oxide.I128":
+	case "oxide.U128", "oxide.I128", "oxide.F128":
 		lo := bits.Uint64()
 		hi := new(big.Int).Rsh(bits, 64).Uint64()
 		return fmt.Sprintf("%s{Lo:%d,Hi:%d}", t, lo, hi)
