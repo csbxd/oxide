@@ -181,6 +181,19 @@ pub fn conformance(case: u64, seed: u64) -> u64 {
             assert_eq!(count, 0);
             1
         }
+        9 => {
+            let mut mask = [0xa5u8; 4096];
+            unsafe { *libc::__errno_location() = libc::EDOM };
+            assert_eq!(unsafe { libc::sched_getaffinity(0, mask.len(), mask.as_mut_ptr().cast()) }, 0);
+            assert!(mask.iter().any(|&byte| byte != 0));
+            assert_eq!(mask[4095], 0);
+            assert_eq!(unsafe { *libc::__errno_location() }, libc::EDOM);
+            assert_eq!(unsafe { libc::sched_getaffinity(0, 0, mask.as_mut_ptr().cast()) }, -1);
+            assert_eq!(unsafe { *libc::__errno_location() }, libc::EINVAL);
+            assert_eq!(unsafe { libc::sched_getaffinity(0, mask.len(), core::ptr::null_mut()) }, -1);
+            assert_eq!(unsafe { *libc::__errno_location() }, libc::EFAULT);
+            1
+        }
         _ => panic!("unknown C ABI fixture"),
     }
 }

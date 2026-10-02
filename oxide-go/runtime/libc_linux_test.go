@@ -23,6 +23,47 @@ func libcString(c *Context, s string) uintptr {
 }
 func libcErrno(c *Context) int32 { return *(*int32)(unsafe.Pointer(LibcErrnoLocation(c))) }
 
+func TestLibcSchedGetaffinity(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	c := NewContext()
+	defer c.Close()
+	const size = 4096
+	mask := c.Alloc(size+8, 8)
+	bytes := unsafe.Slice((*byte)(unsafe.Pointer(mask)), size+8)
+	for i := range bytes {
+		bytes[i] = 0xa5
+	}
+	var expected [size]byte
+	n, _, errno := syscall.RawSyscall(syscall.SYS_SCHED_GETAFFINITY, 0, size, uintptr(unsafe.Pointer(&expected[0])))
+	if errno != 0 {
+		t.Fatalf("native affinity: %v", errno)
+	}
+	*(*int32)(unsafe.Pointer(LibcErrnoLocation(c))) = int32(syscall.EDOM)
+	if got := LibcSchedGetaffinity(c, 0, size, mask); got != 0 {
+		t.Fatalf("affinity = %d, errno = %d", got, libcErrno(c))
+	}
+	for i, want := range expected {
+		if bytes[i] != want {
+			t.Fatalf("affinity byte %d = %#x, want %#x (kernel size %d)", i, bytes[i], want, n)
+		}
+	}
+	for _, got := range bytes[size:] {
+		if got != 0xa5 {
+			t.Fatal("affinity wrote past the supplied CPU set")
+		}
+	}
+	if libcErrno(c) != int32(syscall.EDOM) {
+		t.Fatal("successful affinity query changed errno")
+	}
+	if got := LibcSchedGetaffinity(c, 0, 0, mask); got != -1 || libcErrno(c) != int32(syscall.EINVAL) {
+		t.Fatalf("empty CPU set = %d, errno = %d", got, libcErrno(c))
+	}
+	if got := LibcSchedGetaffinity(c, 0, size, 0); got != -1 || libcErrno(c) != int32(syscall.EFAULT) {
+		t.Fatalf("null CPU set = %d, errno = %d", got, libcErrno(c))
+	}
+}
+
 func TestLibcGammaBoundaries(t *testing.T) {
 	c := NewContext()
 	defer c.Close()

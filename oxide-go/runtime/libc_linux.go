@@ -193,6 +193,17 @@ func LibcGettid(c *Context) int32 {
 	return int32(id)
 }
 
+func LibcSchedGetaffinity(c *Context, pid int32, size, mask uintptr) int32 {
+	n := LibcSyscall(c, syscall.SYS_SCHED_GETAFFINITY, uintptr(pid), size, mask)
+	if n < 0 {
+		return -1
+	}
+	// Linux returns the kernel mask size. The libc ABI returns zero and
+	// clears any remaining bytes in the caller's larger CPU set.
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(mask+uintptr(n))), size-uintptr(n)))
+	return 0
+}
+
 // Callers that rely on native thread identity must bind the entire Rust entry
 // to an OS thread. Locking only around this syscall would not preserve it.
 func LibcSyscall(c *Context, number int64, arguments ...uintptr) int64 {
