@@ -22,15 +22,44 @@ func TestExportName(t *testing.T) {
 		"<demo::mod_a::Item as core::clone::Clone>::clone":         "ModA_Item_As_Core_Clone_Clone_Clone",
 		"<demo::Item as core::convert::From<dep::Other>>::from":    "Item_As_Core_Convert_From_Of_Dep_Other_End_From",
 		"<demo::Item as dep::Trait<dep::A, dep::Nested<u8>>>::run": "Item_As_Dep_Trait_Of_Dep_A_And_Dep_Nested_Of_U8_End_End_Run",
+		"<demo::Item as core::ops::Index<&str>>::index":            "Item_As_Core_Ops_Index_Of_Ref_Of_Str_End_End_Index",
+		"<demo::Item as core::ops::Index<&'n str>>::index":         "Item_As_Core_Ops_Index_Of_Ref_Of_Str_End_End_Index",
+		"<demo::Item as dep::Trait<&'_ mut dep::Other>>::run":      "Item_As_Dep_Trait_Of_MutRef_Of_Dep_Other_End_End_Run",
+		"<demo::Item as dep::Trait<&'map &'n u8>>::run":            "Item_As_Dep_Trait_Of_Ref_Of_Ref_Of_U8_End_End_End_Run",
+		"<demo::Item as dep::Trait<&'map&u8>>::run":                "Item_As_Dep_Trait_Of_Ref_Of_Ref_Of_U8_End_End_End_Run",
 	} {
 		got, err := ExportName(path)
 		if err != nil || got != want {
 			t.Errorf("%s: %q, %v; want %q", path, got, err, want)
 		}
 	}
-	for _, path := range []string{"", "demo::", "demo::a::::b", "demo::<impl A>::run", "<demo::A>::run", "<demo::A as >::run", "<demo::A as dep::Trait<u8>::run", "<demo::A as dep::Trait<&str>>::run", "<demo::A as dep::Trait>::a::run"} {
+	for _, path := range []string{"", "demo::", "demo::a::::b", "demo::<impl A>::run", "<demo::A>::run", "<demo::A as >::run", "<demo::A as dep::Trait<u8>::run", "<demo::A as dep::Trait<&>>::run", "<demo::A as dep::Trait<&'n>>::run", "<demo::A as dep::Trait>::a::run"} {
 		if name, err := ExportName(path); err == nil {
 			t.Errorf("accepted invalid public path %q as %q", path, name)
+		}
+	}
+}
+
+func TestExportNameReferenceLifetimes(t *testing.T) {
+	for _, lifetime := range []string{"n", "static", "_", "map", "range", "chan", "func", "go", "package", "defer", "select", "interface", "var", "fallthrough", "寿命", "Ġ", "a\u0305", "r#type"} {
+		t.Run(lifetime, func(t *testing.T) {
+			for _, reference := range []struct{ rust, name string }{{"", "Ref"}, {"mut ", "MutRef"}} {
+				path := fmt.Sprintf("<demo::Item as dep::Trait<&'%s %su8>>::run", lifetime, reference.rust)
+				want := "Item_As_Dep_Trait_Of_" + reference.name + "_Of_U8_End_End_Run"
+				if got, err := ExportName(path); err != nil || got != want {
+					t.Errorf("%s: %q, %v; want %q", path, got, err, want)
+				}
+			}
+		})
+	}
+	for _, path := range []string{
+		"<demo::Item as dep::Trait<&' u8>>::run",
+		"<demo::Item as dep::Trait<&'map>>::run",
+		"<demo::Item as dep::Trait<&'map, u8>>::run",
+		"<demo::Item as dep::Trait<&'map >>::run",
+	} {
+		if name, err := ExportName(path); err == nil {
+			t.Errorf("accepted malformed reference %q as %q", path, name)
 		}
 	}
 }
@@ -104,6 +133,7 @@ func TestPublicRootCalls(t *testing.T) {
 		{Name: "demo::OtherResult::total", Symbol: "method"},
 		{Name: "<demo::Result as core::clone::Clone>::clone", Symbol: "method"},
 		{Name: "<demo::AliasResult as core::clone::Clone>::clone", Symbol: "method"},
+		{Name: "<demo::Result as dep::Trait<&'map u8>>::run", Symbol: "method"},
 		{Name: "demo::location", Symbol: "tracked"},
 		{Name: "demo::system_call", Symbol: "syscall"},
 	}
@@ -121,6 +151,7 @@ func TestCalls(t *testing.T){
  if Render(c,7)!=7 || Alias(c,8)!=8 || Nested_Render(c,7)!=9 {t.Fatal("wrong public function binding")}
  p:=c.Alloc(8,8);*(*uint64)(unsafe.Pointer(p))=42
  if Result_Total(c,p)!=42 || OtherResult_Total(c,p)!=42 || Result_As_Core_Clone_Clone_Clone(c,p)!=42 || AliasResult_As_Core_Clone_Clone_Clone(c,p)!=42 {t.Fatal("wrong method/trait/re-export binding")}
+ if Result_As_Dep_Trait_Of_Ref_Of_U8_End_End_Run(c,p)!=42 {t.Fatal("Go keyword lifetime changed the trait root binding")}
  if Location(c,p)!=p {t.Fatal("lost caller location")}
  f,err:=os.CreateTemp(t.TempDir(),"write-");if err!=nil{t.Fatal(err)};defer f.Close()
  input:=c.Alloc(3,1);copy(unsafe.Slice((*byte)(unsafe.Pointer(input)),3),"abc")

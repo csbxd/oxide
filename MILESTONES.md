@@ -1,6 +1,25 @@
 # Oxide translation milestones
 
-Snapshot: 2026-10-01. Targets: **linux/amd64 and linux/arm64**.
+Snapshot: 2026-10-02. Targets: **linux/amd64 and linux/arm64**.
+
+## Compiler-validated reference lifetime names (2026-10-02)
+
+Public-root naming consumes the reference lifetime spelling already checked
+by rustc. The Go backend omits this spelling from exported names and checks
+only display-format boundaries; it no longer applies Go identifier or keyword
+rules to Rust lifetimes. Go identifier validation remains on emitted Go names.
+ASCII display separators also prevent UTF-8 continuation bytes from being
+misclassified as whitespace. This change affects naming during generation;
+layouts, concrete signatures, MIR execution and Drop lowering are unchanged.
+
+Root-name regressions cover ordinary/keyword names, anonymous/static lifetimes,
+Unicode letters and combining marks, raw lifetimes, shared/mutable/nested
+references and incomplete reference formats. Generated-call regressions run
+on native arm64 and compile for amd64. The complete `internal/mir` test suite
+passes. Four real Rust implementations using `'map`, `'Ġ`, `'a̅` and `'r#type`
+also translate and execute on arm64 with the expected result; the local probe
+and execution log are in `.cache/lifetime-review/probe`. This adds naming
+coverage without changing the recorded standard-library test baseline.
 
 ## SIMD comparison-mask consumers (M18 follow-up)
 
@@ -691,7 +710,7 @@ blanket implementations and all generic instantiations are not a finite root set
 | Cargo discovery and package selection | implemented, driver tested | pinned Cargo; explicit selected package/library/bin |
 | Repeated exports | verified | unique final rustc export argument forces a fresh root; changing roots in an unchanged crate produces new MIR |
 | Public API selection and aliases | verified export subset | empty roots traverses the public namespace, re-exports, inherent/trait methods, provided defaults and callable constructors; sidecar records canonical trait definitions and generic boundaries; all 973 upstream renderer roots selected on both targets |
-| Public Go root names | verified subset | preserve module/type paths and aliases; UFCS names include type and trait; deterministic encoding and explicit collision errors; direct calls, aliases, methods, track_caller and variadic forwarding covered by root tests |
+| Public Go root names | verified subset | preserve module/type paths and aliases; UFCS names include type and trait; compiler-validated reference lifetime spelling is omitted without Go lexical revalidation, including keyword/Unicode/raw names; deterministic encoding and explicit collision errors; direct calls, aliases, methods, track_caller and variadic forwarding covered by root tests |
 | Compiler options | verified | checked/unchecked overflow, Cargo features and disabling default features; ambient encoded Rust flags and export roots cannot silently override the request |
 | cfg, modules, macros, traits, generic instances | exported | Cargo/rustc handle these before lowering; no source AST translation fallback |
 | HRTB fn signatures and dyn function reification | metadata verified | `oxide-rs/tests/check.py`, both targets; compiler-erased bound regions |

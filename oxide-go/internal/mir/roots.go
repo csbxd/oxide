@@ -80,8 +80,8 @@ func exportComponent(part string) (string, error) {
 	return result, nil
 }
 
-// Trait paths can name finite instantiations such as From<dep::Item>. This is
-// deliberately a named-type grammar, not a parser for arbitrary Rust syntax.
+// Trait paths can name finite instantiations such as From<dep::Item> and
+// Index<&'a str>. Reference lifetimes do not change the generated ABI name.
 type rootTypePath struct {
 	source string
 	offset int
@@ -90,6 +90,34 @@ type rootTypePath struct {
 func (p *rootTypePath) parse(depth int) (string, error) {
 	if depth > 32 {
 		return "", fmt.Errorf("trait type nesting exceeds 32")
+	}
+	for p.offset < len(p.source) && unicode.IsSpace(rune(p.source[p.offset])) {
+		p.offset++
+	}
+	if p.offset < len(p.source) && p.source[p.offset] == '&' {
+		p.offset++
+		for p.offset < len(p.source) && unicode.IsSpace(rune(p.source[p.offset])) {
+			p.offset++
+		}
+		if p.offset < len(p.source) && p.source[p.offset] == '\'' {
+			p.offset++
+			// rustc validates the spelling; consume only the display token.
+			end := strings.IndexAny(p.source[p.offset:], " \t\r\n<>,&")
+			if end <= 0 {
+				return "", fmt.Errorf("malformed reference lifetime")
+			}
+			p.offset += end
+			for p.offset < len(p.source) && unicode.IsSpace(rune(p.source[p.offset])) {
+				p.offset++
+			}
+		}
+		prefix := "Ref"
+		if strings.HasPrefix(p.source[p.offset:], "mut ") {
+			p.offset += len("mut ")
+			prefix = "MutRef"
+		}
+		name, err := p.parse(depth + 1)
+		return prefix + "_Of_" + name + "_End", err
 	}
 	var parts []string
 	for {
